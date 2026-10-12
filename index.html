@@ -308,6 +308,15 @@ html, body { margin: 0; background: var(--color-bg); color: var(--color-fg); fon
 .om table.cmpt td.met { background: var(--b-orange-soft); font-weight: 600; }
 .om h2.tsec { margin-top: var(--cds-gap-md); color: var(--b-blue); }
 
+/* ---------- v10: rest-area sites, layout viewer ---------- */
+.om table.sitet td.wrap { min-width: 9rem; max-width: 20rem; }
+.om .szb { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #FFFFFF; }
+.om .szb.s3 { background: #10113F; } .om .szb.s2 { background: #232A7A; } .om .szb.s1 { background: #F47028; }
+.om .planov { position: fixed; inset: 0; background: rgba(16, 17, 63, .62); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+.om .planbox { background: var(--color-panel); border-radius: var(--cds-radius); max-width: min(1100px, 100%); max-height: 100%; overflow: auto; padding: var(--cds-pad-md); display: flex; flex-direction: column; gap: var(--cds-gap-sm); min-width: min(420px, 100%); }
+.om .planhd { display: flex; justify-content: space-between; align-items: center; gap: var(--cds-gap-md); font-weight: 700; color: var(--b-blue); }
+.om .planbox img { max-width: 100%; height: auto; display: block; background: #FFFFFF; }
+
 </style></head>
 <body><div id="dash-root">
 
@@ -781,10 +790,12 @@ function pgHome(m) {
       top2.append(w); c.append(top2);
       const facts = mk('div', 'facts');
       const fact = (label, v, unit) => { if (v == null || v === '') return; const sp = mk('span'); sp.append(document.createTextNode(label + ' '), mk('b', null, typeof v === 'string' ? v : d3.format(',')(v)), document.createTextNode(unit ? ' ' + unit : '')); facts.append(sp); };
-      if (p.type === 'Rest Area') fact(t('ที่พักริมทาง', 'Sites'), p.rest_area_sites, t('แห่ง', ''));
-      fact(t('ระยะทาง', 'Distance'), p.distance_km, t('กม.', 'km'));
-      if (p.type === 'Railway') fact(t('สถานี', 'Stations'), p.stations);
-      else { fact(t('ด่าน', 'Tolls'), p.toll_plazas); fact(t('ช่องจราจร', 'Lanes'), p.lanes); }
+      if (p.type === 'Rest Area') { fact(t('ที่พักริมทาง', 'Sites'), p.rest_area_sites, t('แห่ง', 'sites')); fact(t('ขนาด', 'Size'), raSizeText(p)); fact(t('พื้นที่', 'Area'), p.area_rai, t('ไร่', 'rai')); }
+      else {
+        fact(t('ระยะทาง', 'Distance'), p.distance_km, t('กม.', 'km'));
+        if (p.type === 'Railway') fact(t('สถานี', 'Stations'), p.stations);
+        else { fact(t('ด่าน', 'Tolls'), p.toll_plazas); fact(t('ช่องจราจร', 'Lanes'), p.lanes); }
+      }
       c.append(facts);
       if (tt) { const tot = mk('div', 'tot'); const v = mk('span', 'v', fmt(tt.total)); v.dataset.source = 'proj_totals'; v.dataset.field = 'total'; v.dataset.where = 'key=' + enc(tt.key); tot.append(v, mk('span', 'muted', t(`ล้านบาท · ${tt.nyears} ปี`, `MB · ${tt.nyears} yrs`) + (tt.combined ? ' · ' + tt.scenario : ''))); c.append(tot); }
       const stg = mk('div', 'stg'); p.stages.split('|').forEach((s) => stg.append(mk('span', s === 'RFP' ? 'rfp' : '', s))); c.append(stg);
@@ -807,10 +818,12 @@ function pgProfile(m) {
   const tg = mk('div', 'top2'); tg.style.display = 'flex'; tg.style.alignItems = 'center'; tg.style.gap = '10px';
   tg.append(agBadge(proj), mk('div', null, t(proj.agency_th, proj.agency_en) + ' · ' + typeName(proj.type))); pc.append(tg);
   const specs = []; const add = (k, field, u) => specs.push({ k, field, u });
-  if (proj.type === 'Rest Area') { add(t('จำนวนที่พักริมทาง', 'Rest-area sites'), 'rest_area_sites', t('แห่ง', 'sites')); if (proj.area_rai) add(t('พื้นที่ให้บริการ', 'Service area'), 'area_rai', t('ไร่', 'rai')); }
-  add(proj.type === 'Rest Area' ? t('ระยะทางสายทางหลัก', 'Host route length') : t('ระยะทาง', 'Distance'), 'distance_km', t('กม.', 'km'));
-  if (proj.type === 'Railway') add(t('จำนวนสถานี', 'Stations'), 'stations', t('สถานี', 'stations'));
-  else { add(proj.type === 'Rest Area' ? t('ด่านบนสายทาง', 'Toll plazas on route') : t('จำนวนด่าน', 'Toll plazas'), 'toll_plazas', t('ด่าน', 'plazas')); add(t('ช่องจราจร', 'Lanes'), 'lanes', t('ไป-กลับ', 'both ways')); }
+  if (proj.type === 'Rest Area') { add(t('จำนวนที่พักริมทาง', 'Rest-area sites'), 'rest_area_sites', t('แห่ง', 'sites')); add(t('พื้นที่รวม', 'Total area'), 'area_rai', t('ไร่', 'rai')); }
+  else {
+    add(t('ระยะทาง', 'Distance'), 'distance_km', t('กม.', 'km'));
+    if (proj.type === 'Railway') add(t('จำนวนสถานี', 'Stations'), 'stations', t('สถานี', 'stations'));
+    else { add(t('จำนวนด่าน', 'Toll plazas'), 'toll_plazas', t('ด่าน', 'plazas')); add(t('ช่องจราจร', 'Lanes'), 'lanes', t('ไป-กลับ', 'both ways')); }
+  }
   add(t('ปีเปิดให้บริการ', 'Opening year'), 'opening_year', t('พ.ศ.', 'B.E.'));
   const sg = mk('div', 'specs'); pc.append(sg);
   for (const s of specs) {
@@ -834,15 +847,20 @@ function pgProfile(m) {
   }
   if (proj.note) kc.append(mk('p', 'note', proj.note));
 
+  if (proj.type === 'Rest Area') siteTable(m, proj);
   const c2 = card(m, t('ข้อมูลโครงการทั้งหมด', 'All project data'), t(typeName(proj.type) + ' · คลิกแถวเพื่อเลือก', typeName(proj.type) + ' · click a row to select'), 'proj-table');
   const tb2 = mk('div', 'tbox'); c2.append(tb2);
   const t2 = mk('table', 'click'); t2.dataset.source = 'projects'; t2.dataset.rowKey = 'project'; tb2.append(t2);
-  const cols = [['project', t('รหัส', 'Code'), 'tl stick'], ['name_th', t('ชื่อโครงการ', 'Project'), 'tl'], ['agency_th', t('หน่วยงาน', 'Agency'), 'tl'], ['distance_km', t('ระยะทาง (กม.)', 'Distance (km)')], ['toll_plazas', t('ด่าน', 'Tolls')], ['lanes', t('ช่องจราจร', 'Lanes')], ['stations', t('สถานี', 'Stations')], ['rest_area_sites', t('ที่พักริมทาง', 'Sites')], ['stages', t('ขั้นตอน', 'Stages'), 'tl']];
+  const cols = [['project', t('รหัส', 'Code'), 'tl stick'], ['name_th', t('ชื่อโครงการ', 'Project'), 'tl'], ['agency_th', t('หน่วยงาน', 'Agency'), 'tl']]
+    .concat(proj.type === 'Rest Area' ? [['rest_area_sites', t('จำนวนแห่ง', 'Sites')], ['sizes', t('ขนาด', 'Size'), 'tl'], ['area_rai', t('พื้นที่ (ไร่)', 'Area (rai)')]]
+      : proj.type === 'Railway' ? [['distance_km', t('ระยะทาง (กม.)', 'Distance (km)')], ['stations', t('สถานี', 'Stations')]]
+      : [['distance_km', t('ระยะทาง (กม.)', 'Distance (km)')], ['toll_plazas', t('ด่าน', 'Tolls')], ['lanes', t('ช่องจราจร', 'Lanes')]])
+    .concat([['stages', t('ขั้นตอน', 'Stages'), 'tl']]);
   const h2 = t2.createTHead().insertRow(); cols.forEach(([f, l, c]) => { const h = mk('th', c, l); h.dataset.field = f; h2.append(h); });
   const b2 = t2.createTBody();
   for (const p of inType) {
     const tr = b2.insertRow(); if (p.project === project) tr.className = 'pick'; tr.addEventListener('click', () => go(null, { project: p.project }));
-    cols.forEach(([f, , c]) => { const v = p[f]; const td = tr.insertCell(); td.className = c || ''; td.textContent = f === 'name_th' ? t(p.name_th, p.name) : f === 'agency_th' ? t(p.agency_th, p.agency_en) : f === 'stages' ? String(v).replace('|', ', ') : v == null || v === '' ? '—' : String(v); });
+    cols.forEach(([f, , c]) => { const v = p[f]; const td = tr.insertCell(); td.className = c || ''; td.textContent = f === 'sizes' ? raSizeText(p) : f === 'name_th' ? t(p.name_th, p.name) : f === 'agency_th' ? t(p.agency_th, p.agency_en) : f === 'stages' ? String(v).replace('|', ', ') : v == null || v === '' ? '—' : String(v); });
   }
 }
 
@@ -997,14 +1015,46 @@ const CMP_VIEWS = [
   ['Rest Area', 'ที่พักริมทาง (ตามขนาด)', 'Rest areas (by size)'],
   ['Railway', 'ระบบราง', 'Railway'],
 ];
-// rest-area size class, from the facility type each model names (DOH: Service Area = large, Rest Area = medium, Rest Stop = small)
-const RA_SIZE = {
-  PPK_RA: { s: 3, th: 'ใหญ่', en: 'Large', why: 'Service Area 37 ไร่' },
-  PBK: { s: 3, th: 'ใหญ่', en: 'Large', why: 'Service Area 2 แห่ง + Rest Stop 1 แห่ง' },
-  TRA: { s: 2, th: 'กลาง', en: 'Medium', why: 'ที่พักริมทาง มีอาคารหลักและศูนย์อาหาร แห่งละ 34–42 ไร่' },
-  RAP: { s: 1, th: 'เล็ก', en: 'Small', why: 'Rest Stop 5 แห่ง (ห้องน้ำ ร้านค้าเล็ก)' },
+// rest-area size: from the sites of each project (large / medium / small), mixed when a project has several sizes
+const raSize = (p) => {
+  const ss = [...new Set((p.sites || []).map((x) => x.size_rank))];
+  if (ss.length === 1) { const x = p.sites[0]; return { s: x.size_rank, th: x.size, en: x.size_en }; }
+  if (ss.length > 1) return { s: 0, th: 'หลายขนาด', en: 'Mixed' };
+  return { s: -1, th: '—', en: '—' };
 };
-const raSize = (p) => RA_SIZE[p.project] || { s: 0, th: '—', en: '—', why: '' };
+const raSizeText = (p) => {
+  const by = d3.rollups(p.sites || [], (v) => v.length, (x) => x.size_rank).sort((a, b) => b[0] - a[0]);
+  return by.map(([r, n]) => { const x = p.sites.find((y) => y.size_rank === r); return t(x.size, x.size_en) + (by.length > 1 || n > 1 ? ' ' + n : ''); }).join(' · ');
+};
+// one table of the sites of a rest-area project, with a button for each site layout
+function siteTable(m, p) {
+  const c = card(m, t('รายละเอียดที่พักริมทาง', 'Rest-area sites'), t(`${p.sites.length} แห่ง · คลิก "รูปแบบผัง" เพื่อดูผังของแต่ละแห่ง`, `${p.sites.length} sites · open "Layout" to see each site plan`), 'sites');
+  const tb = mk('div', 'tbox'); c.append(tb); const tab = mk('table', 'sitet'); tab.dataset.source = 'projects'; tb.append(tab);
+  const hasC = p.sites.some((x) => x.contract);
+  const hr = tab.createTHead().insertRow();
+  [['#', ''], [t('ชื่อ', 'Name'), 'tl'], [t('ตำแหน่ง', 'Location'), 'tl'], [t('ประเภท', 'Type'), 'tl'], [t('ขนาด', 'Size'), 'tl'], [t('พื้นที่ (ไร่)', 'Area (rai)'), ''], [t('พื้นที่ตามแบบจำลอง', 'Area in model'), 'tl']].concat(hasC ? [[t('สัญญา', 'Contract'), 'tl']] : []).concat([['', '']]).forEach(([l, cl]) => hr.append(mk('th', cl, l)));
+  const body = tab.createTBody();
+  p.sites.forEach((x, i) => {
+    const tr = body.insertRow();
+    [String(i + 1), x.name, x.location, t(x.type, x.type_en), t(x.size, x.size_en), x.area_rai == null ? '—' : d3.format(',.2f')(x.area_rai), x.area_note || '—'].concat(hasC ? [x.contract || '—'] : []).forEach((v, k) => {
+      const td = tr.insertCell(); td.textContent = v; td.className = k === 0 || k === 5 ? '' : 'tl wrap';
+      if (k === 4) { td.textContent = ''; td.append(mk('span', 'szb s' + x.size_rank, v)); }
+    });
+    const bc = tr.insertCell(); const b = mk('button', 'mini', t('รูปแบบผัง', 'Layout')); b.type = 'button'; b.addEventListener('click', () => showPlan(p, x)); bc.append(b);
+  });
+}
+function showPlan(p, x) {
+  const ov = mk('div', 'planov'); ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', x.name);
+  const box = mk('div', 'planbox'); ov.append(box);
+  const hd = mk('div', 'planhd'); hd.append(mk('div', null, x.name + ' · ' + t(x.type, x.type_en)));
+  const cl = mk('button', 'mini', t('ปิด', 'Close')); cl.type = 'button'; hd.append(cl); box.append(hd);
+  if (x.plan) { const img = mk('img'); img.src = x.plan; img.alt = t('รูปแบบผัง ', 'Layout of ') + x.name; box.append(img); }
+  else box.append(mk('div', 'empty', t('ยังไม่มีรูปแบบผังของที่พักริมทางแห่งนี้', 'No layout plan for this site yet')));
+  const close = () => { ov.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  cl.addEventListener('click', close); ov.addEventListener('click', (e) => { if (e.target === ov) close(); }); document.addEventListener('keydown', esc);
+  el('om').append(ov); cl.focus();
+}
 // which cost case stands for a project at a stage: PSC, or all PSC contracts added up, or the only case
 function cmpCase(p, st) {
   const rs = state.ptot.filter((r) => r.project === p.project && r.stage === st);
@@ -1027,8 +1077,8 @@ const METRICS = {
     { id: 'mr', th: 'ค่าบำรุงรักษางานทาง (M) ล้านบาท/ปี/กม.', en: 'Road maintenance (M), MB / year / km', f: (r, p) => p.distance_km ? r.maint_other / r.nyears / p.distance_km : null },
   ],
   'Rest Area': [
-    { id: 'o', th: 'ค่าดำเนินการ (O) ล้านบาท/ปี/แห่ง', en: 'Operation (O), MB / year / site', f: (r, p) => p.rest_area_sites ? r.operation / r.nyears / p.rest_area_sites : null },
-    { id: 'm', th: 'ค่าบำรุงรักษา (M) ล้านบาท/ปี/แห่ง', en: 'Maintenance (M), MB / year / site', f: (r, p) => p.rest_area_sites ? r.maintenance / r.nyears / p.rest_area_sites : null },
+    { id: 'o', th: 'ค่าดำเนินการ (O) ล้านบาท/ปี/แห่ง', en: 'Operation (O), MB / year / site', f: (r, p) => (r.sites || p.rest_area_sites) ? r.operation / r.nyears / (r.sites || p.rest_area_sites) : null },
+    { id: 'm', th: 'ค่าบำรุงรักษา (M) ล้านบาท/ปี/แห่ง', en: 'Maintenance (M), MB / year / site', f: (r, p) => (r.sites || p.rest_area_sites) ? r.maintenance / r.nyears / (r.sites || p.rest_area_sites) : null },
   ],
   Railway: [
     { id: 'o', th: 'ค่าดำเนินการ (O) ล้านบาท/ปี/สถานี', en: 'Operation (O), MB / year / station', f: (r, p) => p.stations ? r.operation / r.nyears / p.stations : null },
@@ -1046,8 +1096,8 @@ function cmpRows(p, st, kind) {
   const one = rs.find((r) => r.scenario === kind); if (one) return [one];
   const parts = rs.filter((r) => new RegExp('^' + kind + ' สัญญา').test(r.scenario));
   if (parts.length) return [sumOf(parts, kind + ' (' + parts.length + t(' สัญญา', ' contracts') + ')')];
-  if (kind === 'PPP') return rs.filter((r) => /^PPP \((Gross|Net)/.test(r.scenario));
-  return [];
+  // other variants: PPP Gross / Net, or one row per site (TRA)
+  return rs.filter((r) => r.scenario.startsWith(kind + ' ') && !/รัฐ/.test(r.scenario)).map((r) => (/\(/.test(r.scenario) ? r : { ...r, sites: 1 }));
 }
 function pgCompare(m) {
   const { projects, proj } = state;
@@ -1070,7 +1120,7 @@ function pgCompare(m) {
     .concat(all ? [{ h: t('ประเภท', 'Type'), c: 'tl', f: (e) => typeName(e.p.type) }] : [])
     .concat([{ h: t('ปี', 'Years'), f: (e) => String(e.r.nyears) }])
     .concat(road ? [{ h: t('ระยะทาง (กม.)', 'km'), f: (e) => v(e.p.distance_km) }, { h: t('ช่องจราจร', 'Lanes'), f: (e) => v(e.p.lanes) }, { h: t('ด่าน', 'Toll plazas'), f: (e) => v(e.p.toll_plazas) }]
-      : ra ? [{ h: t('จำนวนแห่ง', 'Sites'), f: (e) => v(e.p.rest_area_sites) }]
+      : ra ? [{ h: t('จำนวนแห่ง', 'Sites'), f: (e) => v(e.r.sites || e.p.rest_area_sites) }, { h: t('ขนาด', 'Size'), c: 'tl', f: (e) => { const z = raSize(e.p); return z.s > 0 ? t(z.th, z.en) : raSizeText(e.p); } }]
       : rail ? [{ h: t('สถานี', 'Stations'), f: (e) => v(e.p.stations) }, { h: t('ระยะทาง (กม.)', 'km'), f: (e) => v(e.p.distance_km) }] : [])
     .concat([{ h: t('ค่าดำเนินการ (O)', 'Operation (O)'), f: (e) => num(e.r.operation) }])
     .concat(road ? [{ h: t('M งานระบบ', 'M system'), f: (e) => num(e.r.maint_system) }, { h: t('M งานทาง', 'M road'), f: (e) => num(e.r.maint_other) }] : [{ h: t('ค่าบำรุงรักษา (M)', 'Maintenance (M)'), f: (e) => num(e.r.maintenance) }])
@@ -1099,14 +1149,15 @@ function pgCompare(m) {
   };
   const notes = [];
   if (road) notes.push(t('งานระบบ = หมวดหรือรายการค่าบำรุงรักษาที่แบบจำลองตั้งชื่อว่างานระบบ · งานทาง = ค่าบำรุงรักษาหมวดอื่นทั้งหมด · ช่องจราจรนับรวมไป-กลับ', 'System = maintenance the model names งานระบบ · road = all other maintenance · lanes count both directions'));
-  if (ra) notes.push(t('ขนาดตามประเภทสถานที่ในแบบจำลอง: ใหญ่ = สถานที่บริการทางหลวง (Service Area) · กลาง = ที่พักริมทาง (Rest Area) · เล็ก = จุดพักรถ (Rest Stop)', 'Size by the facility type each model names: large = Service Area · medium = Rest Area · small = Rest Stop'));
+  if (ra) notes.push(t('ขนาดตามข้อมูลแต่ละแห่ง · ค่าต่อแห่ง = ค่าเฉลี่ยต่อปี ÷ จำนวนแห่ง · ศูนย์บริการจอดพักรถ (TRA) แยกรายแห่ง', 'Size per site · per-site = yearly average ÷ sites · TRA shown site by site'));
   notes.push(t('กรณี PPP (รัฐ) เป็นเฉพาะส่วนที่รัฐจ่ายในกรณี PPP จึงไม่นำมาเปรียบเทียบ', 'PPP (รัฐ) is only the government share of a PPP, so it is left out'));
   notes.forEach((x) => m.append(mk('p', 'note', x)));
   if (ra) {
-    for (const s of [3, 2, 1]) {
+    for (const s of [3, 2, 1, 0]) {
       const list = ps.filter((p) => raSize(p).s === s); if (!list.length) continue;
-      const sz = raSize(list[0]);
-      m.append(mk('h2', 'tsec', t('ที่พักริมทางขนาด' + sz.th, sz.en + ' rest areas')));
+      const types = [...new Set(list.flatMap((p) => p.sites.map((x) => t(x.type, x.type_en))))].join(' · ');
+      m.append(mk('h2', 'tsec', s === 0 ? t('ที่พักริมทางหลายขนาดในโครงการเดียว', 'Projects with several sizes') : t('ที่พักริมทางขนาด' + list[0].sites[0].size, list[0].sites[0].size_en + ' rest areas')));
+      m.append(mk('p', 'note', types));
       const g = mk('div', 'stack'); m.append(g);
       table(g, 'PSC', t('ล้านบาท', 'MB'), rowsFor('PSC', list), 'cmp-psc-' + s);
       table(g, 'PPP', t('ล้านบาท', 'MB'), rowsFor('PPP', list), 'cmp-ppp-' + s);
