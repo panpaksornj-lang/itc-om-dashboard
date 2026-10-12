@@ -297,6 +297,17 @@ html, body { margin: 0; background: var(--color-bg); color: var(--color-fg); fon
 .om td.vattxt { white-space: normal; text-align: left; min-width: 6rem; max-width: 10rem; }
 .om td.wrap { white-space: normal; }
 
+/* ---------- v9: white agency badges, compare tables ---------- */
+.om .stack { display: flex; flex-direction: column; gap: var(--cds-gap-md); }
+.om .ag, .om .ag.DOH, .om .ag.EXAT, .om .ag.BMA { background: #FFFFFF; }
+.om .ag img { background: #FFFFFF; }
+.om table.cmpt td.pn { min-width: 16rem; max-width: 24rem; white-space: normal; line-height: 1.35; }
+.om table.cmpt td.pn b { display: block; color: var(--b-blue); }
+.om table.cmpt td.pn .pnm { display: block; font-size: 11.5px; color: var(--color-fg-muted); }
+.om table.cmpt td.b { font-weight: 700; }
+.om table.cmpt td.met { background: var(--b-orange-soft); font-weight: 600; }
+.om h2.tsec { margin-top: var(--cds-gap-md); color: var(--b-blue); }
+
 </style></head>
 <body><div id="dash-root">
 
@@ -417,8 +428,8 @@ const ROLES = {
 const PERMS = {
   admin: { pages: ['home', 'profile', 'om', 'compare', 'assump'] },
   executive: { pages: ['home', 'profile', 'om', 'compare', 'assump'] },
-  // User pages are provisional until the list of pages is confirmed
-  user: { pages: ['home', 'profile', 'om', 'compare'] },
+  // users: no assumptions or comparison pages
+  user: { pages: ['home', 'profile', 'om'] },
 };
 const NAV = [
   { key: 'main', th: 'หน้าหลัก', en: 'Main', items: [{ id: 'home', th: 'หน้าแรก', en: 'Home', icon: 'pie' }] },
@@ -689,7 +700,7 @@ function drawNav() {
     const grp = mk('div', 'grp'); grp.append(mk('div', 'gl', t(g.th, g.en)));
     for (const it of g.items) {
       const allowed = perms.pages.includes(it.id);
-      if (!allowed && it.id === 'users') continue;
+      if (!allowed) continue;
       const b = navBtn(t(it.th, it.en), page === it.id, () => go(it.id, it.id === 'home' ? null : { scenario: 'ALL' }), { page: true, icon: allowed ? it.icon : 'lock', disabled: allowed ? null : t('ไม่มีสิทธิ์เข้าถึงหน้านี้', 'Your role cannot open this page') });
       b.id = 'nav-' + it.id; grp.append(b);
     }
@@ -778,7 +789,7 @@ function pgHome(m) {
       if (tt) { const tot = mk('div', 'tot'); const v = mk('span', 'v', fmt(tt.total)); v.dataset.source = 'proj_totals'; v.dataset.field = 'total'; v.dataset.where = 'key=' + enc(tt.key); tot.append(v, mk('span', 'muted', t(`ล้านบาท · ${tt.nyears} ปี`, `MB · ${tt.nyears} yrs`) + (tt.combined ? ' · ' + tt.scenario : ''))); c.append(tot); }
       const stg = mk('div', 'stg'); p.stages.split('|').forEach((s) => stg.append(mk('span', s === 'RFP' ? 'rfp' : '', s))); c.append(stg);
       const acts = mk('div', 'acts');
-      for (const [pg, l] of [['profile', t('ข้อมูลโครงการ', 'Project data')], ['om', t('ค่า O&M', 'O&M cost')], ['compare', t('เปรียบเทียบ', 'Compare')]]) {
+      for (const [pg, l] of [['profile', t('ข้อมูลโครงการ', 'Project data')], ['om', t('ค่า O&M', 'O&M cost')]]) {
         if (!state.perms.pages.includes(pg)) continue;
         const bb = mk('button', null, l); bb.type = 'button'; bb.addEventListener('click', (e) => { e.stopPropagation(); go(pg, { project: p.project, type: p.type, scenario: 'ALL' }); }); acts.append(bb);
       }
@@ -1025,77 +1036,86 @@ const METRICS = {
   ],
 };
 const viewOf = (ty) => (ty === 'Motorway' || ty === 'Expressway' ? 'road' : ty);
+// PSC or PPP figures for a project at a stage: one row, the contracts added up, or each PPP variant (Gross / Net); PPP (รัฐ) is left out
+function cmpRows(p, st, kind) {
+  const rs = state.ptot.filter((r) => r.project === p.project && r.stage === st);
+  const sumOf = (many, label) => {
+    const s = (f) => d3.sum(many, (r) => r[f]);
+    return { key: many[0].key, project: p.project, stage: st, scenario: label, nyears: many[0].nyears, total: s('total'), operation: s('operation'), maintenance: s('maintenance'), maint_system: s('maint_system'), maint_other: s('maint_other') };
+  };
+  const one = rs.find((r) => r.scenario === kind); if (one) return [one];
+  const parts = rs.filter((r) => new RegExp('^' + kind + ' สัญญา').test(r.scenario));
+  if (parts.length) return [sumOf(parts, kind + ' (' + parts.length + t(' สัญญา', ' contracts') + ')')];
+  if (kind === 'PPP') return rs.filter((r) => /^PPP \((Gross|Net)/.test(r.scenario));
+  return [];
+}
 function pgCompare(m) {
   const { projects, proj } = state;
   if (!cmpView) cmpView = 'all';
-  header(m, t('ข้อมูล O&M', 'O&M data'), t('เปรียบเทียบโครงการ', 'Compare projects'), t('ใช้กรณี PSC (หรือกรณีเดียวที่แบบจำลองมี) · ค่าเฉลี่ยต่อปีตลอดอายุแบบจำลอง', 'PSC case (or the only case a model has) · yearly average over each model period'), 'compare');
+  header(m, t('ข้อมูล O&M', 'O&M data'), t('เปรียบเทียบโครงการ', 'Compare projects'), t('ตารางสรุปแยกกรณี PSC และ PPP · ค่าเฉลี่ยต่อปีตลอดอายุแบบจำลอง · ล้านบาท', 'Summary tables by PSC and PPP case · yearly average over each model period · million baht'), 'compare');
   const tabs = mk('div', 'ctl'); tabs.dataset.source = 'projects';
   for (const [id, th, en] of CMP_VIEWS) { const b = mk('button', 'chip', t(th, en)); b.type = 'button'; b.setAttribute('aria-pressed', id === cmpView ? 'true' : 'false'); b.addEventListener('click', () => { cmpView = id; render(); }); tabs.append(b); }
   m.append(tabs);
   const view = cmpView, road = view === 'road', ra = view === 'Rest Area', rail = view === 'Railway', all = view === 'all';
-  const entries = [];
-  for (const p of projects.filter((x) => all || viewOf(x.type) === view)) for (const st of p.stages.split('|')) { const r = cmpCase(p, st); if (r) entries.push({ p, st, r, label: pname(p) + ' · ' + st }); }
-  if (ra) entries.sort((a, b) => raSize(b.p).s - raSize(a.p).s);
-  const mets = METRICS[view];
-  if (road) m.append(mk('p', 'note', t('งานระบบ = หมวดหรือรายการค่าบำรุงรักษาที่แบบจำลองตั้งชื่อว่างานระบบ · งานทาง = ค่าบำรุงรักษาหมวดอื่นทั้งหมด · ช่องจราจรนับรวมไป-กลับ', 'System = maintenance the model names งานระบบ · road = all other maintenance · lanes count both directions')));
-  if (ra) m.append(mk('p', 'note', t('ขนาดตามประเภทสถานที่ในแบบจำลอง: ใหญ่ = สถานที่บริการทางหลวง (Service Area) · กลาง = ที่พักริมทาง (Rest Area) · เล็ก = จุดพักรถ (Rest Stop)', 'Size by the facility type each model names: large = Service Area · medium = Rest Area · small = Rest Stop')));
-  if (all) m.append(mk('p', 'note', t('ค่าเฉลี่ยต่อปีของแต่ละโครงการ ไม่หารด้วยขนาด เพื่อดูภาพรวมทุกประเภท · เลือกแท็บด้านบนเพื่อเทียบต่อหน่วย', 'Plain yearly average, not divided by size · pick a tab above for per-unit comparisons')));
-  const g = mk('div', all ? '' : 'grid2'); m.append(g);
-  for (const mt of mets) {
-    const c = card(g, t(mt.th, mt.en), all ? t('ฟ้า = O · ส้ม = M · คลิกแท่งเพื่อเปิดโครงการ', 'Blue = O · orange = M · click a bar to open') : null, 'cmp-' + mt.id);
-    const box = chartBox(c, 'proj_totals projects');
-    let rows = entries.map((e) => ({ e, v: mt.f(e.r, e.p) })).filter((x) => x.v != null);
-    rows = ra ? rows.sort((a, b) => raSize(b.e.p).s - raSize(a.e.p).s || b.v - a.v) : rows.sort((a, b) => b.v - a.v);
-    const miss = entries.filter((e) => mt.f(e.r, e.p) == null);
-    if (miss.length) c.append(mk('p', 'note', t('ไม่รวม ', 'Left out: ') + miss.map((e) => e.label).join(', ') + t(' (ไม่มีข้อมูลที่ใช้หาร)', ' (no figure to divide by)')));
-    if (!rows.length) { box.replaceChildren(mk('div', 'empty', t('ไม่มีข้อมูล', 'No data'))); continue; }
-    const col = mt.id === 'o' ? BLUE : ORANGE;
-    const lab = (x) => (ra ? t(raSize(x.e.p).th, raSize(x.e.p).en) + ' · ' : '') + x.e.label + ' · ' + x.e.r.scenario;
-    later(() => hBars(box, rows.map((x) => ({ label: lab(x), total: x.v,
-      segs: mt.stack ? [{ name: t('ค่าดำเนินการ (O)', 'Operation (O)'), color: BLUE, value: x.e.r.operation / x.e.r.nyears }, { name: t('ค่าบำรุงรักษา (M)', 'Maintenance (M)'), color: ORANGE, value: x.e.r.maintenance / x.e.r.nyears }] : [{ name: t(mt.th, mt.en), color: col, value: x.v }],
-      highlight: x.e.p.project === proj.project, project: x.e.p.project })), (r) => go('profile', { project: r.project })));
-  }
-  // rest areas: one line per size class
-  if (ra) {
-    const c2 = card(m, t('สรุปตามขนาด', 'By size class'), t('ล้านบาท/ปี/แห่ง · ค่าเฉลี่ยถ่วงตามจำนวนแห่ง', 'MB / year / site · weighted by number of sites'), 'cmp-size');
-    const tb = mk('div', 'tbox'); c2.append(tb); const tab = mk('table'); tb.append(tab); tab.dataset.source = 'proj_totals projects';
-    const hr = tab.createTHead().insertRow();
-    [[t('ขนาด', 'Size'), 'tl stick'], [t('โครงการ', 'Projects'), 'tl'], [t('จำนวนแห่ง', 'Sites'), ''], [t('O ล้านบาท/ปี/แห่ง', 'O MB/yr/site'), ''], [t('M ล้านบาท/ปี/แห่ง', 'M MB/yr/site'), ''], [t('รวม ล้านบาท/ปี/แห่ง', 'Total MB/yr/site'), '']].forEach(([l, c]) => hr.append(mk('th', c, l)));
-    const body = tab.createTBody();
-    for (const s of [3, 2, 1]) {
-      const es = entries.filter((e) => raSize(e.p).s === s && e.p.rest_area_sites); if (!es.length) continue;
-      const w = d3.sum(es, (e) => e.p.rest_area_sites);
-      const o = d3.sum(es, (e) => e.r.operation / e.r.nyears) / w, mm = d3.sum(es, (e) => e.r.maintenance / e.r.nyears) / w;
-      const sz = raSize(es[0].p);
-      const tr = body.insertRow();
-      [t(sz.th, sz.en), es.map((e) => e.label).join(', '), String(d3.sum([...new Set(es.map((e) => e.p))], (p) => p.rest_area_sites)), d3.format(',.2f')(o), d3.format(',.2f')(mm), d3.format(',.2f')(o + mm)].forEach((x, i) => { const td = tr.insertCell(); td.textContent = x; if (i === 0) td.className = 'tl stick'; else if (i === 1) td.className = 'tl wrap'; });
-    }
-  }
-  const c3 = card(m, t('ตารางเปรียบเทียบ', 'Comparison table'), t('ล้านบาท · คลิกแถวเพื่อเปิดโครงการ', 'MB · click a row to open the project'), 'cmp-table');
-  const tb = mk('div', 'tbox'); c3.append(tb);
-  const tab = mk('table', 'click'); tab.dataset.source = 'proj_totals'; tab.dataset.rowKey = 'key'; tb.append(tab);
+  const ps = projects.filter((x) => all || viewOf(x.type) === view);
+  const rowsFor = (kind, list) => { const out = []; for (const p of list) for (const st of p.stages.split('|')) for (const r of cmpRows(p, st, kind)) out.push({ p, st, r }); return out; };
+  const num = (x, f) => (x == null || !isFinite(x) ? '—' : d3.format(f || ',.0f')(x));
   const v = (x) => (x == null || x === '' ? '—' : String(x));
-  const specH = road ? [[t('ประเภท', 'Type'), 'tl'], [t('ระยะทาง กม.', 'km'), ''], [t('ช่องจราจร', 'Lanes'), ''], [t('ด่าน', 'Tolls'), '']]
-    : ra ? [[t('ขนาด', 'Size'), 'tl'], [t('จำนวนแห่ง', 'Sites'), '']]
-    : rail ? [[t('สถานี', 'Stations'), ''], [t('ระยะทาง กม.', 'km'), '']]
-    : [[t('ประเภท', 'Type'), 'tl']];
-  const specV = (p) => road ? [typeName(p.type), v(p.distance_km), v(p.lanes), v(p.toll_plazas)]
-    : ra ? [t(raSize(p).th, raSize(p).en), v(p.rest_area_sites)]
-    : rail ? [v(p.stations), v(p.distance_km)]
-    : [typeName(p.type)];
-  const heads = [[t('โครงการ · ขั้นตอน', 'Project · stage'), 'tl stick'], [t('กรณี', 'Case'), 'tl'], [t('ปี', 'Years'), '']].concat(specH)
-    .concat([[t('ค่าดำเนินการ (O)', 'Operation (O)'), ''], ...(road ? [[t('M งานระบบ', 'M system'), ''], [t('M งานทาง', 'M road'), '']] : [[t('ค่าบำรุงรักษา (M)', 'Maintenance (M)'), '']]), [t('รวม', 'Total'), '']])
-    .concat(mets.map((mt) => [t(mt.th, mt.en).replace(/^.*?\) /, ''), '']));
-  const hr = tab.createTHead().insertRow(); heads.forEach(([l, c]) => hr.append(mk('th', c, l)));
-  const body = tab.createTBody();
-  const nTxt = 3 + specH.length;
-  for (const e of entries) {
-    const { p, r } = e; const tr = body.insertRow(); tr.dataset.key = r.key; if (p.project === proj.project) tr.className = 'pick';
-    tr.addEventListener('click', () => go('profile', { project: p.project, level: e.st }));
-    const cells = [e.label, r.scenario, String(r.nyears)].concat(specV(p))
-      .concat([fmt(r.operation), ...(road ? [fmt(r.maint_system), fmt(r.maint_other)] : [fmt(r.maintenance)]), fmt(r.total)])
-      .concat(mets.map((mt) => { const x = mt.f(r, p); return x == null ? '—' : d3.format(all ? ',.1f' : ',.3f')(x); }));
-    cells.forEach((x, i) => { const td = tr.insertCell(); td.textContent = x; if (i === 0) td.className = 'tl stick'; else if (i === 1 || (i < nTxt && specH[i - 3] && specH[i - 3][1] === 'tl')) td.className = 'tl'; });
+  const mets = METRICS[view];
+  const cols = [
+    { h: t('โครงการ', 'Project'), c: 'tl stick pn', f: (e) => e.p },
+    { h: t('ขั้นตอน', 'Stage'), c: 'tl', f: (e) => e.st },
+    { h: t('กรณี', 'Case'), c: 'tl', f: (e) => e.r.scenario },
+  ]
+    .concat(all ? [{ h: t('ประเภท', 'Type'), c: 'tl', f: (e) => typeName(e.p.type) }] : [])
+    .concat([{ h: t('ปี', 'Years'), f: (e) => String(e.r.nyears) }])
+    .concat(road ? [{ h: t('ระยะทาง (กม.)', 'km'), f: (e) => v(e.p.distance_km) }, { h: t('ช่องจราจร', 'Lanes'), f: (e) => v(e.p.lanes) }, { h: t('ด่าน', 'Toll plazas'), f: (e) => v(e.p.toll_plazas) }]
+      : ra ? [{ h: t('จำนวนแห่ง', 'Sites'), f: (e) => v(e.p.rest_area_sites) }]
+      : rail ? [{ h: t('สถานี', 'Stations'), f: (e) => v(e.p.stations) }, { h: t('ระยะทาง (กม.)', 'km'), f: (e) => v(e.p.distance_km) }] : [])
+    .concat([{ h: t('ค่าดำเนินการ (O)', 'Operation (O)'), f: (e) => num(e.r.operation) }])
+    .concat(road ? [{ h: t('M งานระบบ', 'M system'), f: (e) => num(e.r.maint_system) }, { h: t('M งานทาง', 'M road'), f: (e) => num(e.r.maint_other) }] : [{ h: t('ค่าบำรุงรักษา (M)', 'Maintenance (M)'), f: (e) => num(e.r.maintenance) }])
+    .concat([{ h: t('รวม', 'Total'), c: 'b', f: (e) => num(e.r.total) }])
+    .concat(mets.map((mt) => ({ h: t(mt.th, mt.en), c: 'met', f: (e) => num(mt.f(e.r, e.p), all ? ',.1f' : ',.3f') })));
+  const table = (host, title, sub, list, id) => {
+    const c = card(host, title, sub, id);
+    if (!list.length) { c.append(mk('div', 'empty', t('ไม่มีกรณีนี้ในแบบจำลอง', 'No such case in the models'))); return; }
+    const tb = mk('div', 'tbox'); c.append(tb);
+    const tab = mk('table', 'click cmpt'); tab.dataset.source = 'proj_totals projects'; tab.dataset.rowKey = 'key'; tb.append(tab);
+    const hr = tab.createTHead().insertRow(); cols.forEach((k) => hr.append(mk('th', k.c && k.c.includes('tl') ? 'tl' + (k.c.includes('stick') ? ' stick' : '') : '', k.h)));
+    const body = tab.createTBody();
+    for (const e of list) {
+      const tr = body.insertRow(); tr.dataset.key = e.r.key; if (e.p.project === proj.project) tr.className = 'pick';
+      tr.addEventListener('click', () => go('profile', { project: e.p.project, level: e.st }));
+      cols.forEach((k) => {
+        const td = tr.insertCell(); const x = k.f(e);
+        if (k.c && k.c.includes('pn')) { td.className = 'tl stick pn'; td.append(mk('b', null, pname(x)), mk('span', 'pnm', t(x.name_th, x.name))); }
+        else { td.textContent = x; td.className = k.c || ''; }
+      });
+    }
+  };
+  const missNote = (list) => {
+    const miss = []; for (const mt of mets) for (const e of list) if (mt.f(e.r, e.p) == null) miss.push(pname(e.p) + ' · ' + t(mt.th, mt.en).replace(/ ล้านบาท.*| MB.*/, ''));
+    return miss.length ? t('ไม่มีข้อมูลที่ใช้หาร: ', 'No figure to divide by: ') + [...new Set(miss)].join(', ') : null;
+  };
+  const notes = [];
+  if (road) notes.push(t('งานระบบ = หมวดหรือรายการค่าบำรุงรักษาที่แบบจำลองตั้งชื่อว่างานระบบ · งานทาง = ค่าบำรุงรักษาหมวดอื่นทั้งหมด · ช่องจราจรนับรวมไป-กลับ', 'System = maintenance the model names งานระบบ · road = all other maintenance · lanes count both directions'));
+  if (ra) notes.push(t('ขนาดตามประเภทสถานที่ในแบบจำลอง: ใหญ่ = สถานที่บริการทางหลวง (Service Area) · กลาง = ที่พักริมทาง (Rest Area) · เล็ก = จุดพักรถ (Rest Stop)', 'Size by the facility type each model names: large = Service Area · medium = Rest Area · small = Rest Stop'));
+  notes.push(t('กรณี PPP (รัฐ) เป็นเฉพาะส่วนที่รัฐจ่ายในกรณี PPP จึงไม่นำมาเปรียบเทียบ', 'PPP (รัฐ) is only the government share of a PPP, so it is left out'));
+  notes.forEach((x) => m.append(mk('p', 'note', x)));
+  if (ra) {
+    for (const s of [3, 2, 1]) {
+      const list = ps.filter((p) => raSize(p).s === s); if (!list.length) continue;
+      const sz = raSize(list[0]);
+      m.append(mk('h2', 'tsec', t('ที่พักริมทางขนาด' + sz.th, sz.en + ' rest areas')));
+      const g = mk('div', 'stack'); m.append(g);
+      table(g, 'PSC', t('ล้านบาท', 'MB'), rowsFor('PSC', list), 'cmp-psc-' + s);
+      table(g, 'PPP', t('ล้านบาท', 'MB'), rowsFor('PPP', list), 'cmp-ppp-' + s);
+    }
+  } else {
+    for (const kind of ['PSC', 'PPP']) {
+      const list = rowsFor(kind, ps);
+      table(m, t('กรณี ', 'Case ') + kind, [t('ล้านบาท · คลิกแถวเพื่อเปิดโครงการ', 'MB · click a row to open the project'), missNote(list)].filter(Boolean).join(' · '), list, 'cmp-' + kind.toLowerCase());
+    }
   }
 }
 
