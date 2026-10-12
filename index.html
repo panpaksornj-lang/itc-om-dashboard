@@ -334,6 +334,7 @@ html, body { margin: 0; background: var(--color-bg); color: var(--color-fg); fon
 .om ul.basis { margin: 0; padding-left: 1.2rem; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); display: grid; gap: 4px; }
 .om p.src { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: 6px 0 0; }
 
+.om ol.steps { margin: 0; padding-left: 1.3rem; display: grid; gap: 6px; }
 </style></head>
 <body><div id="dash-root">
 
@@ -1296,29 +1297,11 @@ function pgAssump(m) {
   draw();
 }
 
-// ---- Admin: upload model files and edit project data; GitHub rebuilds the site from them ----
-const GH_REPO = 'panpaksornj-lang/itc-om-dashboard';
-const ON_GH = /github\.io$/.test(location.hostname) || location.hostname === 'localhost';
+// ---- Admin: where the data comes from and how it is updated (edits are made through Claude, then synced to GitHub) ----
 const MODEL_SLOTS = [
   ['M82', 'M82', 'RFP'], ['RPM', 'M82', 'SEPO'], ['PPK', 'PPK', 'SEPO'], ['SSP', 'SSP', 'SEPO'], ['ET1', 'ET1', 'SEPO'], ['PPK_RA', 'PPK_RA', 'SEPO'],
   ['PBK', 'PBK', 'SEPO'], ['TRA', 'TRA', 'SEPO'], ['RAP', 'RAP', 'SEPO'], ['BSP', 'BSP', 'SEPO'], ['GLP_PSC', 'GLP', 'SEPO · PSC'], ['GLP_PPP', 'GLP', 'SEPO · PPP'],
 ];
-const SITE_TYPES = [
-  ['สถานที่บริการทางหลวง (Service Area)', 'Service Area'], ['ที่พักริมทาง (Rest Area)', 'Rest Area'], ['จุดพักรถ (Rest Stop)', 'Rest Stop'],
-  ['ศูนย์บริการจอดพักรถ (Rest and Service Center) สำหรับรถบรรทุก', 'Truck Rest and Service Center'],
-];
-const SIZES = [[3, 'ใหญ่', 'Large'], [2, 'กลาง', 'Medium'], [1, 'เล็ก', 'Small']];
-const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
-const lsSet = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) {} };
-const ghTok = () => lsGet('itc-gh-token');
-async function gh(path, opt) {
-  const o = opt || {};
-  const r = await fetch('https://api.github.com' + path, { method: o.method || 'GET', body: o.body ? JSON.stringify(o.body) : undefined,
-    headers: Object.assign({ Authorization: 'Bearer ' + ghTok(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, o.headers || {}) });
-  if (!r.ok) throw new Error('GitHub ' + r.status + ': ' + (await r.text()).slice(0, 160));
-  if (o.raw) return new Uint8Array(await r.arrayBuffer());
-  return r.status === 204 ? null : r.json();
-}
 // ITC1 files: 'ITC1' + salt + iv + AES-GCM, key from the staff password (same as the build)
 async function itcKey(salt, use) {
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(window.__pw || ''), 'PBKDF2', false, ['deriveKey']);
@@ -1331,26 +1314,6 @@ async function itcEnc(bytes) {
 }
 async function itcDec(bytes) {
   return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(20, 32) }, await itcKey(bytes.slice(4, 20), 'decrypt'), bytes.slice(32)));
-}
-const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
-// one commit: put files (bytes) and remove paths, on top of main
-async function ghCommit(puts, removes, message, log) {
-  const ref = await gh(`/repos/${GH_REPO}/git/ref/heads/main`); const head = ref.object.sha;
-  const commit = await gh(`/repos/${GH_REPO}/git/commits/${head}`);
-  const tree = [];
-  for (const f of puts) { log && log(t('กำลังส่ง ', 'Sending ') + f.path + ' (' + d3.format(',.1f')(f.bytes.length / 1048576) + ' MB)'); const b = await gh(`/repos/${GH_REPO}/git/blobs`, { method: 'POST', body: { content: b64(f.bytes), encoding: 'base64' } }); tree.push({ path: f.path, mode: '100644', type: 'blob', sha: b.sha }); }
-  for (const p of removes) if (!puts.some((f) => f.path === p)) tree.push({ path: p, mode: '100644', type: 'blob', sha: null });
-  const nt = await gh(`/repos/${GH_REPO}/git/trees`, { method: 'POST', body: { base_tree: commit.tree.sha, tree } });
-  const nc = await gh(`/repos/${GH_REPO}/git/commits`, { method: 'POST', body: { message, tree: nt.sha, parents: [head] } });
-  await gh(`/repos/${GH_REPO}/git/refs/heads/main`, { method: 'PATCH', body: { sha: nc.sha } });
-  return nc.sha;
-}
-async function ghState() { const raw = await gh(`/repos/${GH_REPO}/contents/data/state.enc`, { raw: true, headers: { Accept: 'application/vnd.github.raw' } }); return JSON.parse(new TextDecoder().decode(await itcDec(raw))); }
-async function ghSaveState(mutate, extraPuts, removes, message, log) {
-  const st = await ghState(); st.projects = st.projects || {}; st.sites = st.sites || {}; st.models = st.models || {};
-  mutate(st);
-  const puts = (extraPuts || []).concat([{ path: 'data/state.enc', bytes: await itcEnc(new TextEncoder().encode(JSON.stringify(st))) }]);
-  return ghCommit(puts, removes || [], message, log);
 }
 // decrypted layout image for a site (plans are stored encrypted)
 const planCache = new Map();
@@ -1366,127 +1329,25 @@ async function planUrl(path) {
 }
 
 function pgAdmin(m) {
-  header(m, t('ผู้ดูแลระบบ', 'Administrator'), t('จัดการข้อมูล', 'Manage data'), t('อัปโหลดไฟล์แบบจำลอง Excel และแก้ไขข้อมูลโครงการ · ระบบจะคำนวณและเผยแพร่เว็บใหม่อัตโนมัติภายในประมาณ 2–5 นาที', 'Upload model Excel files and edit project data · the site rebuilds itself in about 2–5 minutes'), 'admin');
-  if (!ON_GH || !window.__pw) { m.append(mk('div', 'card empty', t('หน้านี้ใช้ได้บนเว็บ GitHub ของ dashboard เท่านั้น', 'This page works on the GitHub copy of the dashboard only'))); return; }
-  const status = mk('div', 'adm-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
-  const say = (txt, kind) => { status.textContent = txt; status.className = 'adm-status ' + (kind || ''); };
-  // 1. GitHub key
-  const c0 = card(m, t('1. กุญแจ GitHub ของผู้ดูแล', '1. Admin GitHub key'), t('ใช้ส่งไฟล์เข้า repository · เก็บไว้เฉพาะในเบราว์เซอร์เครื่องนี้', 'Used to send files to the repository · kept in this browser only'), 'adm-key');
-  const row = mk('div', 'tools'); const ti = mk('input', 'inp'); ti.type = 'password'; ti.placeholder = 'github_pat_…'; ti.value = ghTok(); ti.setAttribute('aria-label', 'GitHub token');
-  const bs = mk('button', 'btn', t('บันทึกและทดสอบ', 'Save and test')); bs.type = 'button';
-  const bc = mk('button', 'btn ghost', t('ลบกุญแจ', 'Remove key')); bc.type = 'button';
-  row.append(ti, bs, bc); c0.append(row, status);
-  bs.addEventListener('click', async () => { lsSet('itc-gh-token', ti.value.trim()); say(t('กำลังทดสอบ…', 'Testing…')); try { const r = await gh(`/repos/${GH_REPO}`); say(r.permissions && r.permissions.push ? t('เชื่อมต่อแล้ว · เขียนข้อมูลได้', 'Connected · can write') : t('เชื่อมต่อได้แต่ไม่มีสิทธิ์เขียน', 'Connected but cannot write'), r.permissions && r.permissions.push ? 'ok' : 'bad'); runs(); } catch (e) { say(e.message, 'bad'); } });
-  bc.addEventListener('click', () => { lsSet('itc-gh-token', ''); ti.value = ''; say(t('ลบกุญแจแล้ว', 'Key removed')); });
-  const busy = (b, on) => { b.disabled = on; };
-
-  // 2. models
-  const models = dash.data('models'); const md = models.status === 'ok' ? models.data : {};
-  const c1 = card(m, t('2. ไฟล์แบบจำลอง Excel', '2. Model Excel files'), t('เลือกไฟล์ใหม่ที่รูปแบบเดิม แล้วกดอัปโหลด · ไฟล์ถูกเข้ารหัสก่อนส่ง', 'Pick a new file with the same layout and upload · files are encrypted before sending'), 'adm-models');
+  header(m, t('ผู้ดูแลระบบ', 'Administrator'), t('ข้อมูลและการอัปเดต', 'Data and updates'), t('การแก้ไขทำผ่าน Claude แล้ว sync ไปเว็บ GitHub', 'Edits are made through Claude, then synced to the GitHub site'), 'admin');
+  const c0 = card(m, t('วิธีอัปเดตข้อมูล', 'How to update the data'), null, 'adm-how');
+  const ol = mk('ol', 'steps');
+  [t('เปิดแชท Claude ที่ใช้สร้าง dashboard นี้', 'Open the Claude chat that built this dashboard'),
+   t('แนบไฟล์แบบจำลอง Excel ฉบับใหม่ (รูปแบบเดิม) หรือพิมพ์สิ่งที่ต้องการแก้ เช่น ระยะทาง ชื่อโครงการ รูปผังที่พักริมทาง', 'Attach the new model Excel (same layout) or describe the change — distances, names, rest-area layouts'),
+   t('Claude ดึงตัวเลขใหม่ ตรวจผลรวมกับแบบจำลอง และอัปเดต dashboard ใน Claude', 'Claude extracts the new figures, checks the totals against the model and updates the dashboard in Claude'),
+   t('Claude sync ไปเว็บ GitHub · เว็บเปลี่ยนภายใน 1–2 นาที (กดรีเฟรช)', 'Claude syncs to the GitHub site · it changes within 1–2 minutes (refresh)')].forEach((x) => ol.append(mk('li', null, x)));
+  c0.append(ol);
+  const c1 = card(m, t('ไฟล์แบบจำลองที่ใช้อยู่', 'Model files in use'), null, 'adm-models');
+  const md = dash.data('models'); const info = md.status === 'ok' && md.data ? md.data : null;
   const tb = mk('div', 'tbox'); c1.append(tb); const tab = mk('table'); tb.append(tab);
-  const hr = tab.createTHead().insertRow(); [[t('โครงการ', 'Project'), 'tl'], [t('ขั้นตอน', 'Stage'), 'tl'], [t('ไฟล์ปัจจุบัน', 'Current file'), 'tl'], [t('อัปโหลดเมื่อ', 'Uploaded'), 'tl'], [t('ไฟล์ใหม่', 'New file'), 'tl'], ['', '']].forEach(([l, c]) => hr.append(mk('th', c, l)));
+  const hr = tab.createTHead().insertRow(); [t('โครงการ', 'Project'), t('ขั้นตอน', 'Stage'), t('ไฟล์', 'File'), t('วันที่', 'Date')].forEach((l) => hr.append(mk('th', 'tl', l)));
   const body = tab.createTBody();
   for (const [slot, pj, stg] of MODEL_SLOTS) {
-    const info = md[slot] || {}; const tr = body.insertRow();
-    [pj, stg, info.name || '—', info.at ? new Date(info.at).toLocaleString('th-TH') + (info.by ? ' · ' + info.by : '') : '—'].forEach((v) => { const td = tr.insertCell(); td.textContent = v; td.className = 'tl wrap'; });
-    const fi = mk('input'); fi.type = 'file'; fi.accept = '.xlsx,.xlsm'; fi.setAttribute('aria-label', t('ไฟล์ใหม่ ', 'New file ') + slot); tr.insertCell().append(fi);
-    const b = mk('button', 'mini', t('อัปโหลด', 'Upload')); b.type = 'button'; tr.insertCell().append(b);
-    b.addEventListener('click', async () => {
-      const f = fi.files && fi.files[0]; if (!f) { say(t('เลือกไฟล์ก่อน', 'Pick a file first'), 'bad'); return; }
-      if (!ghTok()) { say(t('ใส่กุญแจ GitHub ในข้อ 1 ก่อน', 'Add the GitHub key in step 1 first'), 'bad'); return; }
-      busy(b, true);
-      try {
-        say(t('กำลังเข้ารหัส ', 'Encrypting ') + f.name + '…');
-        const enc = await itcEnc(new Uint8Array(await f.arrayBuffer()));
-        const CH = 25 * 1048576; const puts = [];
-        if (enc.length <= CH) puts.push({ path: `models/${slot}.enc`, bytes: enc });
-        else for (let i = 0; i * CH < enc.length; i++) puts.push({ path: `models/${slot}.enc.part${i}`, bytes: enc.subarray(i * CH, (i + 1) * CH) });
-        const ref = await gh(`/repos/${GH_REPO}/git/ref/heads/main`); const cm = await gh(`/repos/${GH_REPO}/git/commits/${ref.object.sha}`);
-        const tr2 = await gh(`/repos/${GH_REPO}/git/trees/${cm.tree.sha}?recursive=1`);
-        const old = tr2.tree.map((x) => x.path).filter((p) => p === `models/${slot}.enc` || p.startsWith(`models/${slot}.enc.part`));
-        await ghSaveState((st) => { st.models[slot] = { name: f.name, at: new Date().toISOString(), by: session.code + ' · ' + session.username }; }, puts, old, `Admin ${session.code}: new model file for ${slot}`, (x) => say(x));
-        say(t('ส่งไฟล์แล้ว · ระบบกำลังคำนวณใหม่ ดูสถานะในข้อ 4', 'Sent · the site is rebuilding, see step 4'), 'ok'); fi.value = ''; setTimeout(runs, 4000);
-      } catch (e) { say(e.message, 'bad'); }
-      busy(b, false);
-    });
+    const p = state.projects.find((x) => x.project === pj); const x = info && info[slot];
+    const name = x ? x.name : p ? (stg.startsWith('RFP') ? p.source_RFP : p.source_SEPO) : '';
+    const tr = body.insertRow(); [pj, stg, name || '—', x && x.at ? new Date(x.at).toLocaleDateString('th-TH') : '—'].forEach((v) => { const td = tr.insertCell(); td.textContent = v; td.className = 'tl wrap'; });
   }
-
-  // 3. project data
-  const P = state.projects;
-  const c2 = card(m, t('3. ข้อมูลโครงการ', '3. Project data'), t('แก้ตัวเลขหรือชื่อ แล้วกดบันทึก', 'Edit figures or names, then save'), 'adm-proj');
-  const tb2 = mk('div', 'tbox'); c2.append(tb2); const t2 = mk('table', 'admt'); tb2.append(t2);
-  const F = [['name_th', t('ชื่อไทย', 'Thai name'), 'text'], ['name', t('ชื่ออังกฤษ', 'English name'), 'text'], ['distance_km', t('ระยะทาง กม.', 'km'), 'number'], ['toll_plazas', t('ด่าน', 'Tolls'), 'number'], ['lanes', t('ช่องจราจร', 'Lanes'), 'number'], ['stations', t('สถานี', 'Stations'), 'number'], ['opening_year', t('ปีเปิด', 'Opening'), 'number']];
-  const h2 = t2.createTHead().insertRow(); h2.append(mk('th', 'tl', t('รหัส', 'Code'))); F.forEach(([, l]) => h2.append(mk('th', 'tl', l)));
-  const b2 = t2.createTBody(); const edits = {};
-  for (const p of P) {
-    const tr = b2.insertRow(); tr.insertCell().textContent = pname(p);
-    for (const [f, l, ty] of F) {
-      const td = tr.insertCell(); const inp = mk('input', 'inp sm'); inp.type = ty; if (ty === 'number') inp.step = 'any'; inp.value = p[f] == null ? '' : p[f]; inp.setAttribute('aria-label', pname(p) + ' ' + l);
-      if (p.type === 'Rest Area' && ['distance_km', 'toll_plazas', 'lanes', 'stations'].includes(f)) inp.disabled = true;
-      if (p.type !== 'Railway' && f === 'stations') inp.disabled = true;
-      inp.addEventListener('input', () => { (edits[p.project] = edits[p.project] || {})[f] = ty === 'number' ? (inp.value === '' ? null : +inp.value) : inp.value; });
-      td.append(inp);
-    }
-  }
-  const sv = mk('button', 'btn', t('บันทึกข้อมูลโครงการ', 'Save project data')); sv.type = 'button'; c2.append(sv);
-  sv.addEventListener('click', async () => {
-    if (!Object.keys(edits).length) { say(t('ยังไม่มีการแก้ไข', 'Nothing changed')); return; }
-    busy(sv, true);
-    try { await ghSaveState((st) => { for (const [k, v] of Object.entries(edits)) st.projects[k] = Object.assign(st.projects[k] || {}, v); }, [], [], `Admin ${session.code}: project data`, say); say(t('บันทึกแล้ว · ระบบกำลังคำนวณใหม่', 'Saved · rebuilding'), 'ok'); setTimeout(runs, 4000); }
-    catch (e) { say(e.message, 'bad'); }
-    busy(sv, false);
-  });
-
-  // 3b. rest-area sites and layout plans
-  const ras = P.filter((p) => p.type === 'Rest Area');
-  const c3 = card(m, t('3.1 ที่พักริมทางและรูปแบบผัง', '3.1 Rest-area sites and layout plans'), t('แก้ข้อมูลแต่ละแห่ง และแนบรูปผัง (JPG, PNG หรือ PDF) แล้วกดบันทึกของโครงการนั้น', 'Edit each site and attach a layout (JPG, PNG or PDF), then save that project'), 'adm-sites');
-  for (const p of ras) {
-    c3.append(mk('h3', 'admh', pname(p) + ' · ' + t(p.name_th, p.name)));
-    const tbx = mk('div', 'tbox'); c3.append(tbx); const tt = mk('table', 'admt'); tbx.append(tt);
-    const hh = tt.createTHead().insertRow(); [t('ชื่อ', 'Name'), t('ตำแหน่ง', 'Location'), t('ประเภท', 'Type'), t('ขนาด', 'Size'), t('พื้นที่ (ไร่)', 'Area (rai)'), t('รูปแบบผัง', 'Layout')].forEach((l) => hh.append(mk('th', 'tl', l)));
-    const bb = tt.createTBody(); const sites = (p.sites || []).map((x) => { const y = Object.assign({}, x); delete y.cost; return y; }); const files = {};
-    sites.forEach((x, i) => {
-      const tr = bb.insertRow();
-      const txt = (f, w) => { const inp = mk('input', 'inp sm' + (w ? ' ' + w : '')); inp.value = x[f] == null ? '' : x[f]; inp.addEventListener('input', () => { x[f] = inp.value; }); tr.insertCell().append(inp); };
-      txt('name', 'wide'); txt('location', 'wide');
-      const ts = mk('select', 'inp sm'); SITE_TYPES.forEach(([th, en]) => { const o = mk('option', null, th); o.value = th; if (x.type === th) o.selected = true; ts.append(o); }); ts.addEventListener('change', () => { x.type = ts.value; x.type_en = (SITE_TYPES.find((s) => s[0] === ts.value) || [])[1]; }); tr.insertCell().append(ts);
-      const ss = mk('select', 'inp sm'); SIZES.forEach(([r, th, en]) => { const o = mk('option', null, th); o.value = r; if (x.size_rank === r) o.selected = true; ss.append(o); }); ss.addEventListener('change', () => { const z = SIZES.find((s) => s[0] === +ss.value); x.size_rank = z[0]; x.size = z[1]; x.size_en = z[2]; }); tr.insertCell().append(ss);
-      const ar = mk('input', 'inp sm'); ar.type = 'number'; ar.step = 'any'; ar.value = x.area_rai == null ? '' : x.area_rai; ar.addEventListener('input', () => { x.area_rai = ar.value === '' ? null : +ar.value; }); tr.insertCell().append(ar);
-      const pc = tr.insertCell(); const pf = mk('input'); pf.type = 'file'; pf.accept = 'image/*,.pdf'; pf.setAttribute('aria-label', t('รูปผัง ', 'Layout ') + x.name); pf.addEventListener('change', () => { files[i] = pf.files[0]; });
-      pc.append(mk('div', 'muted', x.plan ? t('มีรูปผังแล้ว', 'Has a layout') : t('ยังไม่มี', 'None yet')), pf);
-    });
-    const sb = mk('button', 'btn', t('บันทึก ', 'Save ') + pname(p)); sb.type = 'button'; c3.append(sb);
-    sb.addEventListener('click', async () => {
-      busy(sb, true);
-      try {
-        const puts = [];
-        for (const [i, f] of Object.entries(files)) { if (!f) continue; say(t('กำลังเข้ารหัสรูป ', 'Encrypting ') + f.name); const path = `plans/${p.project}-${+i + 1}-${Date.now()}.enc`; puts.push({ path, bytes: await itcEnc(new Uint8Array(await f.arrayBuffer())) }); sites[i].plan = path; }
-        await ghSaveState((st) => { st.sites[p.project] = sites; }, puts, [], `Admin ${session.code}: ${p.project} sites`, say);
-        say(t('บันทึกแล้ว · ระบบกำลังคำนวณใหม่', 'Saved · rebuilding'), 'ok'); setTimeout(runs, 4000);
-      } catch (e) { say(e.message, 'bad'); }
-      busy(sb, false);
-    });
-  }
-
-  // 4. build status
-  const c4 = card(m, t('4. สถานะการคำนวณและเผยแพร่', '4. Build status'), null, 'adm-runs');
-  const bl = dash.data('built_at'); if (bl.status === 'ok') c4.append(mk('p', 'note', t('ข้อมูลที่แสดงอยู่สร้างเมื่อ ', 'Data on screen was built ') + new Date(bl.data).toLocaleString('th-TH')));
-  const rl = mk('div'); c4.append(rl); const rb = mk('button', 'btn ghost', t('รีเฟรชสถานะ', 'Refresh')); rb.type = 'button'; c4.append(rb);
-  async function runs() {
-    if (!ghTok()) { rl.replaceChildren(mk('p', 'muted', t('ใส่กุญแจ GitHub เพื่อดูสถานะ', 'Add the GitHub key to see status'))); return; }
-    try {
-      const r = await gh(`/repos/${GH_REPO}/actions/runs?per_page=6`); const tbz = mk('table'); const hz = tbz.createTHead().insertRow();
-      [t('เวลา', 'Time'), t('รายการ', 'Change'), t('สถานะ', 'Status'), ''].forEach((l) => hz.append(mk('th', 'tl', l))); const bz = tbz.createTBody();
-      for (const x of r.workflow_runs || []) {
-        const tr = bz.insertRow(); const st = x.status !== 'completed' ? t('กำลังทำงาน', 'Running') : x.conclusion === 'success' ? t('สำเร็จ', 'Done') : t('ไม่สำเร็จ', 'Failed');
-        [new Date(x.created_at).toLocaleString('th-TH'), (x.head_commit && x.head_commit.message || '').split('\n')[0], st].forEach((v) => { const td = tr.insertCell(); td.textContent = v; td.className = 'tl'; });
-        const a = mk('a', null, t('รายละเอียด', 'Details')); a.href = x.html_url; a.target = '_blank'; a.rel = 'noopener'; tr.insertCell().append(a);
-        if (x.conclusion === 'failure') tr.className = 'bad';
-      }
-      rl.replaceChildren(tbz);
-    } catch (e) { rl.replaceChildren(mk('p', 'muted', e.message)); }
-  }
-  rb.addEventListener('click', runs); runs();
+  const bl = dash.data('built_at'); if (bl.status === 'ok' && bl.data) c1.append(mk('p', 'note', t('ข้อมูลชุดนี้สร้างเมื่อ ', 'This data was built ') + new Date(bl.data).toLocaleString('th-TH')));
 }
 
 // deep link to a page
