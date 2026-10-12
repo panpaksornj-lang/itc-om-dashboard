@@ -323,6 +323,17 @@ html, body { margin: 0; background: var(--color-bg); color: var(--color-fg); fon
 .om td.sumtxt .ev { display: block; margin-top: 4px; font-size: 11px; color: var(--color-fg-muted); }
 .om td.difftxt { white-space: normal; text-align: left; min-width: 12rem; max-width: 18rem; color: var(--b-blue); }
 .om td.neg { color: #1E8E5A; font-weight: 600; } .om td.pos { color: #C62F2F; font-weight: 600; }
+/* ---------- v12: admin page ---------- */
+.om .adm-status { margin-top: var(--cds-gap-sm); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); min-height: 1.2em; }
+.om .adm-status.ok { color: #1E8E5A; font-weight: 600; } .om .adm-status.bad { color: #C62F2F; font-weight: 600; }
+.om table.admt td { vertical-align: top; }
+.om .inp.sm { padding: 5px 8px; font-size: 12.5px; min-width: 5rem; }
+.om .inp.sm.wide { min-width: 12rem; }
+.om h3.admh { margin-top: var(--cds-gap-md); color: var(--b-blue); }
+.om tr.bad td { color: #C62F2F; }
+.om ul.basis { margin: 0; padding-left: 1.2rem; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); display: grid; gap: 4px; }
+.om p.src { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: 6px 0 0; }
+
 </style></head>
 <body><div id="dash-root">
 
@@ -373,7 +384,7 @@ html, body { margin: 0; background: var(--color-bg); color: var(--color-fg); fon
       const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
       const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: ub(enc.salt), iterations: enc.iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
       const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ub(enc.iv) }, key, ub(enc.ct));
-      Object.assign(store, JSON.parse(new TextDecoder().decode(pt))); cache = {};
+      Object.assign(store, JSON.parse(new TextDecoder().decode(pt))); cache = {}; window.__pw = pw;
       return true;
     } catch (e) { return false; }
   };
@@ -441,7 +452,7 @@ const ROLES = {
   user: { th: 'ผู้ใช้งาน', en: 'User' },
 };
 const PERMS = {
-  admin: { pages: ['home', 'profile', 'om', 'compare', 'assump'] },
+  admin: { pages: ['home', 'profile', 'om', 'compare', 'assump', 'admin'] },
   executive: { pages: ['home', 'profile', 'om', 'compare', 'assump'] },
   // users: no assumptions or comparison pages
   user: { pages: ['home', 'profile', 'om'] },
@@ -453,6 +464,7 @@ const NAV = [
     { id: 'om', th: 'ค่า O&M 30 ปี', en: '30-year O&M', icon: 'bars' },
     { id: 'compare', th: 'เปรียบเทียบโครงการ', en: 'Compare projects', icon: 'compare' },
     { id: 'assump', th: 'สมมติฐานรายการย่อย', en: 'Item assumptions', icon: 'tag' }] },
+  { key: 'adm', th: 'ผู้ดูแลระบบ', en: 'Administrator', items: [{ id: 'admin', th: 'จัดการข้อมูล', en: 'Manage data', icon: 'file' }] },
 ];
 const ICONS = {
   pie: 'M2 7.5 8 2l6 5.5 M3.5 6.5V14h9V6.5 M6.5 14v-4h3v4',
@@ -685,11 +697,11 @@ function render() {
 
   drawNav();
   const m = el('page'); m.replaceChildren();
-  ({ home: pgHome, profile: pgProfile, om: pgOM, compare: pgCompare, assump: pgAssump })[page](m);
+  ({ home: pgHome, profile: pgProfile, om: pgOM, compare: pgCompare, assump: pgAssump, admin: pgAdmin })[page](m);
 }
 
 // which selectors each page shows as tabs on the left
-const PAGE_FILTERS = { home: [], profile: ['project'], om: ['project', 'level', 'scenario'], compare: [], assump: ['project', 'level'] };
+const PAGE_FILTERS = { home: [], profile: ['project'], om: ['project', 'level', 'scenario'], compare: [], assump: ['project', 'level'], admin: [] };
 function navBtn(label, on, onClick, opts = {}) {
   const b = mk('button', 'nb'); b.type = 'button';
   if (opts.icon) b.append(icon(opts.icon)); else b.append(mk('span', 'dot'));
@@ -852,6 +864,11 @@ function pgProfile(m) {
     [st, c, fmt(r.operation), fmt(r.maintenance), fmt(r.total)].forEach((v, i) => { const td = tr.insertCell(); td.textContent = v; if (i < 2) td.className = 'tl'; });
   }
   if (proj.note) kc.append(mk('p', 'note', proj.note));
+  const mdl = dash.data('models');
+  if (mdl.status === 'ok' && mdl.data) {
+    const slots = proj.project === 'M82' ? [['RFP', 'M82'], ['SEPO', 'RPM']] : proj.project === 'GLP' ? [['PSC', 'GLP_PSC'], ['PPP', 'GLP_PPP']] : [['', proj.project]];
+    for (const [lb, s] of slots) { const x = mdl.data[s]; if (x) kc.append(mk('p', 'src', t('ไฟล์แบบจำลอง', 'Model file') + (lb ? ' ' + lb : '') + ': ' + x.name + ' · ' + new Date(x.at).toLocaleDateString('th-TH'))); }
+  }
 
   if (proj.type === 'Rest Area') siteTable(m, proj);
   const c2 = card(m, t('ข้อมูลโครงการทั้งหมด', 'All project data'), t(typeName(proj.type) + ' · คลิกแถวเพื่อเลือก', typeName(proj.type) + ' · click a row to select'), 'proj-table');
@@ -1054,7 +1071,14 @@ function showPlan(p, x) {
   const box = mk('div', 'planbox'); ov.append(box);
   const hd = mk('div', 'planhd'); hd.append(mk('div', null, x.name + ' · ' + t(x.type, x.type_en)));
   const cl = mk('button', 'mini', t('ปิด', 'Close')); cl.type = 'button'; hd.append(cl); box.append(hd);
-  if (x.plan) { const img = mk('img'); img.src = x.plan; img.alt = t('รูปแบบผัง ', 'Layout of ') + x.name; box.append(img); }
+  if (x.plan) {
+    const ph = mk('div', 'empty', t('กำลังเปิดรูปผัง…', 'Opening layout…')); box.append(ph);
+    (typeof planUrl === 'function' ? planUrl(x.plan) : Promise.resolve(x.plan)).then((u) => {
+      const img = mk('img'); img.alt = t('รูปแบบผัง ', 'Layout of ') + x.name; img.src = u;
+      img.addEventListener('error', () => { const a = mk('a', null, t('เปิดไฟล์รูปผัง', 'Open the layout file')); a.href = u; a.target = '_blank'; a.rel = 'noopener'; ph.replaceWith(a); img.remove(); });
+      ph.replaceWith(img);
+    }).catch(() => { ph.textContent = t('เปิดรูปผังไม่สำเร็จ', 'Could not open the layout'); });
+  }
   else box.append(mk('div', 'empty', t('ยังไม่มีรูปแบบผังของที่พักริมทางแห่งนี้', 'No layout plan for this site yet')));
   const close = () => { ov.remove(); document.removeEventListener('keydown', esc); };
   const esc = (e) => { if (e.key === 'Escape') close(); };
@@ -1155,25 +1179,49 @@ function pgCompare(m) {
   };
   const notes = [];
   if (road) notes.push(t('งานระบบ = หมวดหรือรายการค่าบำรุงรักษาที่แบบจำลองตั้งชื่อว่างานระบบ · งานทาง = ค่าบำรุงรักษาหมวดอื่นทั้งหมด · ช่องจราจรนับรวมไป-กลับ', 'System = maintenance the model names งานระบบ · road = all other maintenance · lanes count both directions'));
-  if (ra) notes.push(t('ขนาดตามข้อมูลแต่ละแห่ง · ค่าต่อแห่ง = ค่าเฉลี่ยต่อปี ÷ จำนวนแห่ง · ศูนย์บริการจอดพักรถ (TRA) แยกรายแห่ง', 'Size per site · per-site = yearly average ÷ sites · TRA shown site by site'));
+  if (ra) notes.push(t('เทียบรายจุด: ทุกจุดของทุกโครงการจัดกลุ่มตามขนาด ใหญ่ กลาง เล็ก · ค่าเฉลี่ยต่อปี = ผลรวม ÷ จำนวนปีของแบบจำลอง', 'Site by site: every site of every project grouped by size · yearly average = total ÷ model years'));
   notes.push(t('กรณี PPP (รัฐ) เป็นเฉพาะส่วนที่รัฐจ่ายในกรณี PPP จึงไม่นำมาเปรียบเทียบ', 'PPP (รัฐ) is only the government share of a PPP, so it is left out'));
   notes.forEach((x) => m.append(mk('p', 'note', x)));
-  if (ra) {
-    for (const s of [3, 2, 1, 0]) {
-      const list = ps.filter((p) => raSize(p).s === s); if (!list.length) continue;
-      const types = [...new Set(list.flatMap((p) => p.sites.map((x) => t(x.type, x.type_en))))].join(' · ');
-      m.append(mk('h2', 'tsec', s === 0 ? t('ที่พักริมทางหลายขนาดในโครงการเดียว', 'Projects with several sizes') : t('ที่พักริมทางขนาด' + list[0].sites[0].size, list[0].sites[0].size_en + ' rest areas')));
-      m.append(mk('p', 'note', types));
-      const g = mk('div', 'stack'); m.append(g);
-      table(g, 'PSC', t('ล้านบาท', 'MB'), rowsFor('PSC', list), 'cmp-psc-' + s);
-      table(g, 'PPP', t('ล้านบาท', 'MB'), rowsFor('PPP', list), 'cmp-ppp-' + s);
-    }
-  } else {
+  if (ra) { raCompare(m, ps, proj); return; }
+  {
     for (const kind of ['PSC', 'PPP']) {
       const list = rowsFor(kind, ps);
       table(m, t('กรณี ', 'Case ') + kind, [t('ล้านบาท · คลิกแถวเพื่อเปิดโครงการ', 'MB · click a row to open the project'), missNote(list)].filter(Boolean).join(' · '), list, 'cmp-' + kind.toLowerCase());
     }
   }
+}
+
+// rest areas compared site by site, grouped by size across projects
+function raCompare(m, ps, proj) {
+  const all = []; for (const p of ps) for (const x of p.sites || []) all.push({ p, x });
+  const num = (v, f) => (v == null || !isFinite(v) ? '—' : d3.format(f || ',.2f')(v));
+  const foot = new Map();
+  for (const sz of [3, 2, 1]) {
+    const list = all.filter((e) => e.x.size_rank === sz); if (!list.length) continue;
+    m.append(mk('h2', 'tsec', t('ที่พักริมทางขนาด' + list[0].x.size, list[0].x.size_en + ' rest areas') + ' · ' + list.length + t(' จุด', ' sites')));
+    m.append(mk('p', 'note', [...new Set(list.map((e) => t(e.x.type, e.x.type_en)))].join(' · ')));
+    const g = mk('div', 'stack'); m.append(g);
+    for (const kind of ['PSC', 'PPP']) {
+      const rows = list.filter((e) => e.x.cost && e.x.cost[kind]);
+      const miss = list.filter((e) => !(e.x.cost && e.x.cost[kind]));
+      const c = card(g, kind, [t('ล้านบาท · คลิกแถวเพื่อเปิดโครงการ', 'MB · click a row to open the project'), miss.length ? t('ไม่มีข้อมูลรายจุดกรณีนี้: ', 'No site figures for this case: ') + miss.map((e) => e.x.name + ' (' + pname(e.p) + ')').join(', ') : ''].filter(Boolean).join(' · '), 'cmp-site-' + kind.toLowerCase() + '-' + sz);
+      if (!rows.length) { c.append(mk('div', 'empty', t('ไม่มีข้อมูล', 'No data'))); continue; }
+      rows.sort((a, b) => (b.x.cost[kind].o + b.x.cost[kind].m) / b.x.cost[kind].ny - (a.x.cost[kind].o + a.x.cost[kind].m) / a.x.cost[kind].ny);
+      const tb = mk('div', 'tbox'); c.append(tb); const tab = mk('table', 'click cmpt'); tab.dataset.source = 'projects'; tb.append(tab);
+      const hr = tab.createTHead().insertRow();
+      [[t('ที่พักริมทาง', 'Site'), 'tl stick'], [t('ประเภท', 'Type'), 'tl'], [t('พื้นที่ (ไร่)', 'Area (rai)'), ''], [t('ปี', 'Years'), ''], [t('ค่าดำเนินการ (O)', 'Operation (O)'), ''], [t('ค่าบำรุงรักษา (M)', 'Maintenance (M)'), ''], [t('รวม', 'Total'), ''], [t('O ล้านบาท/ปี', 'O MB/yr'), ''], [t('M ล้านบาท/ปี', 'M MB/yr'), ''], [t('รวม ล้านบาท/ปี', 'Total MB/yr'), ''], [t('รวม ล้านบาท/ปี/ไร่', 'Total MB/yr/rai'), '']].forEach(([l, cl]) => hr.append(mk('th', cl, l)));
+      const body = tab.createTBody();
+      for (const e of rows) {
+        const k = e.x.cost[kind]; const tot = k.o + k.m; const yr = tot / k.ny;
+        if (k.basis) { if (!foot.has(k.basis)) foot.set(k.basis, new Set()); foot.get(k.basis).add(pname(e.p)); }
+        const tr = body.insertRow(); if (e.p.project === proj.project) tr.className = 'pick'; tr.addEventListener('click', () => go('profile', { project: e.p.project }));
+        const td0 = tr.insertCell(); td0.className = 'tl stick pn'; td0.append(mk('b', null, e.x.name), mk('span', 'pnm', pname(e.p) + ' · ' + t(e.p.name_th, e.p.name)));
+        [t(e.x.type, e.x.type_en), num(e.x.area_rai), String(k.ny), num(k.o), num(k.m), num(tot), num(k.o / k.ny, ',.3f'), num(k.m / k.ny, ',.3f'), num(yr, ',.3f'), e.x.area_rai ? num(yr / e.x.area_rai, ',.4f') : '—']
+          .forEach((v, i) => { const td = tr.insertCell(); td.textContent = v; td.className = i === 0 ? 'tl wrap' : i === 8 ? 'b met' : i === 9 ? 'met' : ''; });
+      }
+    }
+  }
+  if (foot.size) { const c = card(m, t('ที่มาของตัวเลขรายจุด', 'Where the site figures come from'), null, 'cmp-site-basis'); const ul = mk('ul', 'basis'); for (const [b, set] of foot) ul.append(mk('li', null, [...set].join(', ') + ': ' + b)); c.append(ul); }
 }
 
 // ---- Assumptions per sub-item: PSC, PPP, or the two side by side ----
@@ -1246,6 +1294,199 @@ function pgAssump(m) {
   };
   q.addEventListener('input', () => { aq = q.value; draw(); });
   draw();
+}
+
+// ---- Admin: upload model files and edit project data; GitHub rebuilds the site from them ----
+const GH_REPO = 'panpaksornj-lang/itc-om-dashboard';
+const ON_GH = /github\.io$/.test(location.hostname) || location.hostname === 'localhost';
+const MODEL_SLOTS = [
+  ['M82', 'M82', 'RFP'], ['RPM', 'M82', 'SEPO'], ['PPK', 'PPK', 'SEPO'], ['SSP', 'SSP', 'SEPO'], ['ET1', 'ET1', 'SEPO'], ['PPK_RA', 'PPK_RA', 'SEPO'],
+  ['PBK', 'PBK', 'SEPO'], ['TRA', 'TRA', 'SEPO'], ['RAP', 'RAP', 'SEPO'], ['BSP', 'BSP', 'SEPO'], ['GLP_PSC', 'GLP', 'SEPO · PSC'], ['GLP_PPP', 'GLP', 'SEPO · PPP'],
+];
+const SITE_TYPES = [
+  ['สถานที่บริการทางหลวง (Service Area)', 'Service Area'], ['ที่พักริมทาง (Rest Area)', 'Rest Area'], ['จุดพักรถ (Rest Stop)', 'Rest Stop'],
+  ['ศูนย์บริการจอดพักรถ (Rest and Service Center) สำหรับรถบรรทุก', 'Truck Rest and Service Center'],
+];
+const SIZES = [[3, 'ใหญ่', 'Large'], [2, 'กลาง', 'Medium'], [1, 'เล็ก', 'Small']];
+const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+const lsSet = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) {} };
+const ghTok = () => lsGet('itc-gh-token');
+async function gh(path, opt) {
+  const o = opt || {};
+  const r = await fetch('https://api.github.com' + path, { method: o.method || 'GET', body: o.body ? JSON.stringify(o.body) : undefined,
+    headers: Object.assign({ Authorization: 'Bearer ' + ghTok(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, o.headers || {}) });
+  if (!r.ok) throw new Error('GitHub ' + r.status + ': ' + (await r.text()).slice(0, 160));
+  if (o.raw) return new Uint8Array(await r.arrayBuffer());
+  return r.status === 204 ? null : r.json();
+}
+// ITC1 files: 'ITC1' + salt + iv + AES-GCM, key from the staff password (same as the build)
+async function itcKey(salt, use) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(window.__pw || ''), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, [use]);
+}
+async function itcEnc(bytes) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await itcKey(salt, 'encrypt'), bytes));
+  const out = new Uint8Array(32 + ct.length); out.set(new TextEncoder().encode('ITC1')); out.set(salt, 4); out.set(iv, 20); out.set(ct, 32); return out;
+}
+async function itcDec(bytes) {
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(20, 32) }, await itcKey(bytes.slice(4, 20), 'decrypt'), bytes.slice(32)));
+}
+const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+// one commit: put files (bytes) and remove paths, on top of main
+async function ghCommit(puts, removes, message, log) {
+  const ref = await gh(`/repos/${GH_REPO}/git/ref/heads/main`); const head = ref.object.sha;
+  const commit = await gh(`/repos/${GH_REPO}/git/commits/${head}`);
+  const tree = [];
+  for (const f of puts) { log && log(t('กำลังส่ง ', 'Sending ') + f.path + ' (' + d3.format(',.1f')(f.bytes.length / 1048576) + ' MB)'); const b = await gh(`/repos/${GH_REPO}/git/blobs`, { method: 'POST', body: { content: b64(f.bytes), encoding: 'base64' } }); tree.push({ path: f.path, mode: '100644', type: 'blob', sha: b.sha }); }
+  for (const p of removes) if (!puts.some((f) => f.path === p)) tree.push({ path: p, mode: '100644', type: 'blob', sha: null });
+  const nt = await gh(`/repos/${GH_REPO}/git/trees`, { method: 'POST', body: { base_tree: commit.tree.sha, tree } });
+  const nc = await gh(`/repos/${GH_REPO}/git/commits`, { method: 'POST', body: { message, tree: nt.sha, parents: [head] } });
+  await gh(`/repos/${GH_REPO}/git/refs/heads/main`, { method: 'PATCH', body: { sha: nc.sha } });
+  return nc.sha;
+}
+async function ghState() { const raw = await gh(`/repos/${GH_REPO}/contents/data/state.enc`, { raw: true, headers: { Accept: 'application/vnd.github.raw' } }); return JSON.parse(new TextDecoder().decode(await itcDec(raw))); }
+async function ghSaveState(mutate, extraPuts, removes, message, log) {
+  const st = await ghState(); st.projects = st.projects || {}; st.sites = st.sites || {}; st.models = st.models || {};
+  mutate(st);
+  const puts = (extraPuts || []).concat([{ path: 'data/state.enc', bytes: await itcEnc(new TextEncoder().encode(JSON.stringify(st))) }]);
+  return ghCommit(puts, removes || [], message, log);
+}
+// decrypted layout image for a site (plans are stored encrypted)
+const planCache = new Map();
+async function planUrl(path) {
+  if (!/\.enc$/.test(path)) return path;
+  if (!planCache.has(path)) {
+    const r = await fetch(path, { cache: 'no-store' }); if (!r.ok) throw new Error(r.status);
+    const u8 = await itcDec(new Uint8Array(await r.arrayBuffer()));
+    const mime = u8[0] === 0x89 ? 'image/png' : u8[0] === 0x25 ? 'application/pdf' : u8[0] === 0x52 ? 'image/webp' : 'image/jpeg';
+    planCache.set(path, URL.createObjectURL(new Blob([u8], { type: mime })));
+  }
+  return planCache.get(path);
+}
+
+function pgAdmin(m) {
+  header(m, t('ผู้ดูแลระบบ', 'Administrator'), t('จัดการข้อมูล', 'Manage data'), t('อัปโหลดไฟล์แบบจำลอง Excel และแก้ไขข้อมูลโครงการ · ระบบจะคำนวณและเผยแพร่เว็บใหม่อัตโนมัติภายในประมาณ 2–5 นาที', 'Upload model Excel files and edit project data · the site rebuilds itself in about 2–5 minutes'), 'admin');
+  if (!ON_GH || !window.__pw) { m.append(mk('div', 'card empty', t('หน้านี้ใช้ได้บนเว็บ GitHub ของ dashboard เท่านั้น', 'This page works on the GitHub copy of the dashboard only'))); return; }
+  const status = mk('div', 'adm-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+  const say = (txt, kind) => { status.textContent = txt; status.className = 'adm-status ' + (kind || ''); };
+  // 1. GitHub key
+  const c0 = card(m, t('1. กุญแจ GitHub ของผู้ดูแล', '1. Admin GitHub key'), t('ใช้ส่งไฟล์เข้า repository · เก็บไว้เฉพาะในเบราว์เซอร์เครื่องนี้', 'Used to send files to the repository · kept in this browser only'), 'adm-key');
+  const row = mk('div', 'tools'); const ti = mk('input', 'inp'); ti.type = 'password'; ti.placeholder = 'github_pat_…'; ti.value = ghTok(); ti.setAttribute('aria-label', 'GitHub token');
+  const bs = mk('button', 'btn', t('บันทึกและทดสอบ', 'Save and test')); bs.type = 'button';
+  const bc = mk('button', 'btn ghost', t('ลบกุญแจ', 'Remove key')); bc.type = 'button';
+  row.append(ti, bs, bc); c0.append(row, status);
+  bs.addEventListener('click', async () => { lsSet('itc-gh-token', ti.value.trim()); say(t('กำลังทดสอบ…', 'Testing…')); try { const r = await gh(`/repos/${GH_REPO}`); say(r.permissions && r.permissions.push ? t('เชื่อมต่อแล้ว · เขียนข้อมูลได้', 'Connected · can write') : t('เชื่อมต่อได้แต่ไม่มีสิทธิ์เขียน', 'Connected but cannot write'), r.permissions && r.permissions.push ? 'ok' : 'bad'); runs(); } catch (e) { say(e.message, 'bad'); } });
+  bc.addEventListener('click', () => { lsSet('itc-gh-token', ''); ti.value = ''; say(t('ลบกุญแจแล้ว', 'Key removed')); });
+  const busy = (b, on) => { b.disabled = on; };
+
+  // 2. models
+  const models = dash.data('models'); const md = models.status === 'ok' ? models.data : {};
+  const c1 = card(m, t('2. ไฟล์แบบจำลอง Excel', '2. Model Excel files'), t('เลือกไฟล์ใหม่ที่รูปแบบเดิม แล้วกดอัปโหลด · ไฟล์ถูกเข้ารหัสก่อนส่ง', 'Pick a new file with the same layout and upload · files are encrypted before sending'), 'adm-models');
+  const tb = mk('div', 'tbox'); c1.append(tb); const tab = mk('table'); tb.append(tab);
+  const hr = tab.createTHead().insertRow(); [[t('โครงการ', 'Project'), 'tl'], [t('ขั้นตอน', 'Stage'), 'tl'], [t('ไฟล์ปัจจุบัน', 'Current file'), 'tl'], [t('อัปโหลดเมื่อ', 'Uploaded'), 'tl'], [t('ไฟล์ใหม่', 'New file'), 'tl'], ['', '']].forEach(([l, c]) => hr.append(mk('th', c, l)));
+  const body = tab.createTBody();
+  for (const [slot, pj, stg] of MODEL_SLOTS) {
+    const info = md[slot] || {}; const tr = body.insertRow();
+    [pj, stg, info.name || '—', info.at ? new Date(info.at).toLocaleString('th-TH') + (info.by ? ' · ' + info.by : '') : '—'].forEach((v) => { const td = tr.insertCell(); td.textContent = v; td.className = 'tl wrap'; });
+    const fi = mk('input'); fi.type = 'file'; fi.accept = '.xlsx,.xlsm'; fi.setAttribute('aria-label', t('ไฟล์ใหม่ ', 'New file ') + slot); tr.insertCell().append(fi);
+    const b = mk('button', 'mini', t('อัปโหลด', 'Upload')); b.type = 'button'; tr.insertCell().append(b);
+    b.addEventListener('click', async () => {
+      const f = fi.files && fi.files[0]; if (!f) { say(t('เลือกไฟล์ก่อน', 'Pick a file first'), 'bad'); return; }
+      if (!ghTok()) { say(t('ใส่กุญแจ GitHub ในข้อ 1 ก่อน', 'Add the GitHub key in step 1 first'), 'bad'); return; }
+      busy(b, true);
+      try {
+        say(t('กำลังเข้ารหัส ', 'Encrypting ') + f.name + '…');
+        const enc = await itcEnc(new Uint8Array(await f.arrayBuffer()));
+        const CH = 25 * 1048576; const puts = [];
+        if (enc.length <= CH) puts.push({ path: `models/${slot}.enc`, bytes: enc });
+        else for (let i = 0; i * CH < enc.length; i++) puts.push({ path: `models/${slot}.enc.part${i}`, bytes: enc.subarray(i * CH, (i + 1) * CH) });
+        const ref = await gh(`/repos/${GH_REPO}/git/ref/heads/main`); const cm = await gh(`/repos/${GH_REPO}/git/commits/${ref.object.sha}`);
+        const tr2 = await gh(`/repos/${GH_REPO}/git/trees/${cm.tree.sha}?recursive=1`);
+        const old = tr2.tree.map((x) => x.path).filter((p) => p === `models/${slot}.enc` || p.startsWith(`models/${slot}.enc.part`));
+        await ghSaveState((st) => { st.models[slot] = { name: f.name, at: new Date().toISOString(), by: session.code + ' · ' + session.username }; }, puts, old, `Admin ${session.code}: new model file for ${slot}`, (x) => say(x));
+        say(t('ส่งไฟล์แล้ว · ระบบกำลังคำนวณใหม่ ดูสถานะในข้อ 4', 'Sent · the site is rebuilding, see step 4'), 'ok'); fi.value = ''; setTimeout(runs, 4000);
+      } catch (e) { say(e.message, 'bad'); }
+      busy(b, false);
+    });
+  }
+
+  // 3. project data
+  const P = state.projects;
+  const c2 = card(m, t('3. ข้อมูลโครงการ', '3. Project data'), t('แก้ตัวเลขหรือชื่อ แล้วกดบันทึก', 'Edit figures or names, then save'), 'adm-proj');
+  const tb2 = mk('div', 'tbox'); c2.append(tb2); const t2 = mk('table', 'admt'); tb2.append(t2);
+  const F = [['name_th', t('ชื่อไทย', 'Thai name'), 'text'], ['name', t('ชื่ออังกฤษ', 'English name'), 'text'], ['distance_km', t('ระยะทาง กม.', 'km'), 'number'], ['toll_plazas', t('ด่าน', 'Tolls'), 'number'], ['lanes', t('ช่องจราจร', 'Lanes'), 'number'], ['stations', t('สถานี', 'Stations'), 'number'], ['opening_year', t('ปีเปิด', 'Opening'), 'number']];
+  const h2 = t2.createTHead().insertRow(); h2.append(mk('th', 'tl', t('รหัส', 'Code'))); F.forEach(([, l]) => h2.append(mk('th', 'tl', l)));
+  const b2 = t2.createTBody(); const edits = {};
+  for (const p of P) {
+    const tr = b2.insertRow(); tr.insertCell().textContent = pname(p);
+    for (const [f, l, ty] of F) {
+      const td = tr.insertCell(); const inp = mk('input', 'inp sm'); inp.type = ty; if (ty === 'number') inp.step = 'any'; inp.value = p[f] == null ? '' : p[f]; inp.setAttribute('aria-label', pname(p) + ' ' + l);
+      if (p.type === 'Rest Area' && ['distance_km', 'toll_plazas', 'lanes', 'stations'].includes(f)) inp.disabled = true;
+      if (p.type !== 'Railway' && f === 'stations') inp.disabled = true;
+      inp.addEventListener('input', () => { (edits[p.project] = edits[p.project] || {})[f] = ty === 'number' ? (inp.value === '' ? null : +inp.value) : inp.value; });
+      td.append(inp);
+    }
+  }
+  const sv = mk('button', 'btn', t('บันทึกข้อมูลโครงการ', 'Save project data')); sv.type = 'button'; c2.append(sv);
+  sv.addEventListener('click', async () => {
+    if (!Object.keys(edits).length) { say(t('ยังไม่มีการแก้ไข', 'Nothing changed')); return; }
+    busy(sv, true);
+    try { await ghSaveState((st) => { for (const [k, v] of Object.entries(edits)) st.projects[k] = Object.assign(st.projects[k] || {}, v); }, [], [], `Admin ${session.code}: project data`, say); say(t('บันทึกแล้ว · ระบบกำลังคำนวณใหม่', 'Saved · rebuilding'), 'ok'); setTimeout(runs, 4000); }
+    catch (e) { say(e.message, 'bad'); }
+    busy(sv, false);
+  });
+
+  // 3b. rest-area sites and layout plans
+  const ras = P.filter((p) => p.type === 'Rest Area');
+  const c3 = card(m, t('3.1 ที่พักริมทางและรูปแบบผัง', '3.1 Rest-area sites and layout plans'), t('แก้ข้อมูลแต่ละแห่ง และแนบรูปผัง (JPG, PNG หรือ PDF) แล้วกดบันทึกของโครงการนั้น', 'Edit each site and attach a layout (JPG, PNG or PDF), then save that project'), 'adm-sites');
+  for (const p of ras) {
+    c3.append(mk('h3', 'admh', pname(p) + ' · ' + t(p.name_th, p.name)));
+    const tbx = mk('div', 'tbox'); c3.append(tbx); const tt = mk('table', 'admt'); tbx.append(tt);
+    const hh = tt.createTHead().insertRow(); [t('ชื่อ', 'Name'), t('ตำแหน่ง', 'Location'), t('ประเภท', 'Type'), t('ขนาด', 'Size'), t('พื้นที่ (ไร่)', 'Area (rai)'), t('รูปแบบผัง', 'Layout')].forEach((l) => hh.append(mk('th', 'tl', l)));
+    const bb = tt.createTBody(); const sites = (p.sites || []).map((x) => { const y = Object.assign({}, x); delete y.cost; return y; }); const files = {};
+    sites.forEach((x, i) => {
+      const tr = bb.insertRow();
+      const txt = (f, w) => { const inp = mk('input', 'inp sm' + (w ? ' ' + w : '')); inp.value = x[f] == null ? '' : x[f]; inp.addEventListener('input', () => { x[f] = inp.value; }); tr.insertCell().append(inp); };
+      txt('name', 'wide'); txt('location', 'wide');
+      const ts = mk('select', 'inp sm'); SITE_TYPES.forEach(([th, en]) => { const o = mk('option', null, th); o.value = th; if (x.type === th) o.selected = true; ts.append(o); }); ts.addEventListener('change', () => { x.type = ts.value; x.type_en = (SITE_TYPES.find((s) => s[0] === ts.value) || [])[1]; }); tr.insertCell().append(ts);
+      const ss = mk('select', 'inp sm'); SIZES.forEach(([r, th, en]) => { const o = mk('option', null, th); o.value = r; if (x.size_rank === r) o.selected = true; ss.append(o); }); ss.addEventListener('change', () => { const z = SIZES.find((s) => s[0] === +ss.value); x.size_rank = z[0]; x.size = z[1]; x.size_en = z[2]; }); tr.insertCell().append(ss);
+      const ar = mk('input', 'inp sm'); ar.type = 'number'; ar.step = 'any'; ar.value = x.area_rai == null ? '' : x.area_rai; ar.addEventListener('input', () => { x.area_rai = ar.value === '' ? null : +ar.value; }); tr.insertCell().append(ar);
+      const pc = tr.insertCell(); const pf = mk('input'); pf.type = 'file'; pf.accept = 'image/*,.pdf'; pf.setAttribute('aria-label', t('รูปผัง ', 'Layout ') + x.name); pf.addEventListener('change', () => { files[i] = pf.files[0]; });
+      pc.append(mk('div', 'muted', x.plan ? t('มีรูปผังแล้ว', 'Has a layout') : t('ยังไม่มี', 'None yet')), pf);
+    });
+    const sb = mk('button', 'btn', t('บันทึก ', 'Save ') + pname(p)); sb.type = 'button'; c3.append(sb);
+    sb.addEventListener('click', async () => {
+      busy(sb, true);
+      try {
+        const puts = [];
+        for (const [i, f] of Object.entries(files)) { if (!f) continue; say(t('กำลังเข้ารหัสรูป ', 'Encrypting ') + f.name); const path = `plans/${p.project}-${+i + 1}-${Date.now()}.enc`; puts.push({ path, bytes: await itcEnc(new Uint8Array(await f.arrayBuffer())) }); sites[i].plan = path; }
+        await ghSaveState((st) => { st.sites[p.project] = sites; }, puts, [], `Admin ${session.code}: ${p.project} sites`, say);
+        say(t('บันทึกแล้ว · ระบบกำลังคำนวณใหม่', 'Saved · rebuilding'), 'ok'); setTimeout(runs, 4000);
+      } catch (e) { say(e.message, 'bad'); }
+      busy(sb, false);
+    });
+  }
+
+  // 4. build status
+  const c4 = card(m, t('4. สถานะการคำนวณและเผยแพร่', '4. Build status'), null, 'adm-runs');
+  const bl = dash.data('built_at'); if (bl.status === 'ok') c4.append(mk('p', 'note', t('ข้อมูลที่แสดงอยู่สร้างเมื่อ ', 'Data on screen was built ') + new Date(bl.data).toLocaleString('th-TH')));
+  const rl = mk('div'); c4.append(rl); const rb = mk('button', 'btn ghost', t('รีเฟรชสถานะ', 'Refresh')); rb.type = 'button'; c4.append(rb);
+  async function runs() {
+    if (!ghTok()) { rl.replaceChildren(mk('p', 'muted', t('ใส่กุญแจ GitHub เพื่อดูสถานะ', 'Add the GitHub key to see status'))); return; }
+    try {
+      const r = await gh(`/repos/${GH_REPO}/actions/runs?per_page=6`); const tbz = mk('table'); const hz = tbz.createTHead().insertRow();
+      [t('เวลา', 'Time'), t('รายการ', 'Change'), t('สถานะ', 'Status'), ''].forEach((l) => hz.append(mk('th', 'tl', l))); const bz = tbz.createTBody();
+      for (const x of r.workflow_runs || []) {
+        const tr = bz.insertRow(); const st = x.status !== 'completed' ? t('กำลังทำงาน', 'Running') : x.conclusion === 'success' ? t('สำเร็จ', 'Done') : t('ไม่สำเร็จ', 'Failed');
+        [new Date(x.created_at).toLocaleString('th-TH'), (x.head_commit && x.head_commit.message || '').split('\n')[0], st].forEach((v) => { const td = tr.insertCell(); td.textContent = v; td.className = 'tl'; });
+        const a = mk('a', null, t('รายละเอียด', 'Details')); a.href = x.html_url; a.target = '_blank'; a.rel = 'noopener'; tr.insertCell().append(a);
+        if (x.conclusion === 'failure') tr.className = 'bad';
+      }
+      rl.replaceChildren(tbz);
+    } catch (e) { rl.replaceChildren(mk('p', 'muted', e.message)); }
+  }
+  rb.addEventListener('click', runs); runs();
 }
 
 // deep link to a page
