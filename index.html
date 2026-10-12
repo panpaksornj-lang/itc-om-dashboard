@@ -317,6 +317,12 @@ html, body { margin: 0; background: var(--color-bg); color: var(--color-fg); fon
 .om .planhd { display: flex; justify-content: space-between; align-items: center; gap: var(--cds-gap-md); font-weight: 700; color: var(--b-blue); }
 .om .planbox img { max-width: 100%; height: auto; display: block; background: #FFFFFF; }
 
+
+/* ---------- v11: PSC / PPP assumption compare ---------- */
+.om td.sumtxt.half { min-width: 15rem; max-width: 24rem; }
+.om td.sumtxt .ev { display: block; margin-top: 4px; font-size: 11px; color: var(--color-fg-muted); }
+.om td.difftxt { white-space: normal; text-align: left; min-width: 12rem; max-width: 18rem; color: var(--b-blue); }
+.om td.neg { color: #1E8E5A; font-weight: 600; } .om td.pos { color: #C62F2F; font-weight: 600; }
 </style></head>
 <body><div id="dash-root">
 
@@ -1170,32 +1176,72 @@ function pgCompare(m) {
   }
 }
 
-// ---- Assumptions per sub-item: assumption · escalation · VAT ----
-let aq = '';
+// ---- Assumptions per sub-item: PSC, PPP, or the two side by side ----
+let aq = '', aMode = 'PSC';
+// the rows standing for one case kind of a project stage: the case itself, or its sites / contracts added up, or PPP (Gross Cost)
+function kindItems(items, project, level, kind) {
+  const rs = items.filter((r) => r.project === project && r.stage === level && r.scenario.startsWith(kind) && !/รัฐ/.test(r.scenario));
+  const cases = [...new Set(rs.map((r) => r.scenario))];
+  let use = cases.includes(kind) ? [kind] : cases.some((c) => /\(/.test(c)) ? [cases.find((c) => /Gross/.test(c)) || cases[0]] : cases;
+  const by = new Map();
+  for (const r of rs.filter((x) => use.includes(x.scenario))) {
+    const k = r.code || r.item; const o = by.get(k);
+    if (!o) by.set(k, { ...r, total: r.total_30y }); else o.total += r.total_30y;
+  }
+  return { cases: use, rows: by };
+}
 function pgAssump(m) {
   const { items, project, level, proj } = state;
   header(m, t('ข้อมูล O&M', 'O&M data') + ' · ' + pname(proj) + ' · ' + level, t('สรุปสมมติฐานรายการย่อย', 'Sub-item assumptions'), t(proj.name_th, proj.name), 'assump');
   const notes = dash.data('item_notes');
-  const cs = (proj['cases_' + level] || '').split('|'); const cs0 = cs.includes('PSC') ? 'PSC' : cs[0];
-  const its = items.filter((r) => r.project === project && r.stage === level && r.scenario === cs0).sort((a, b) => a.seq - b.seq);
-  const note = (r) => notes.status === 'ok' ? notes.data.find((x) => x.project === project && x.stage === level && x.code === (r.code || r.item)) : null;
-  const c1 = card(m, t('สมมติฐานของแต่ละรายการย่อย', 'Assumptions by sub-item'), t('สรุปจากแผ่นงานคำนวณของแต่ละรายการในแบบจำลอง (กรณี ' + cs0 + ')', 'From each item’s calculation sheet in the model (' + cs0 + ' case)'), 'a-items');
+  const K = { PSC: kindItems(items, project, level, 'PSC'), PPP: kindItems(items, project, level, 'PPP') };
+  const modes = [['PSC', t('กรณี PSC', 'PSC case')], ['PPP', t('กรณี PPP', 'PPP case')], ['CMP', t('เปรียบเทียบ PSC กับ PPP', 'Compare PSC and PPP')]]
+    .filter(([id]) => id === 'CMP' ? K.PSC.rows.size && K.PPP.rows.size : K[id].rows.size);
+  if (!modes.some(([id]) => id === aMode)) aMode = modes.length ? modes[0][0] : 'PSC';
+  const tabs = mk('div', 'ctl');
+  for (const [id, l] of modes) { const b = mk('button', 'chip', l); b.type = 'button'; b.setAttribute('aria-pressed', id === aMode ? 'true' : 'false'); b.addEventListener('click', () => { aMode = id; render(); }); tabs.append(b); }
+  m.append(tabs);
+  const cmp = aMode === 'CMP';
+  const caseTxt = (k) => K[k].cases.join(' + '); const cl = (k) => (caseTxt(k) === k ? k : k + ' (' + caseTxt(k) + ')');
+  const sub = cmp ? t(`${cl('PSC')} เทียบ ${cl('PPP')} · ผลรวมตลอดอายุแบบจำลอง ล้านบาท · ต่าง (%) = (PPP − PSC) ÷ PSC`, `${cl('PSC')} vs ${cl('PPP')} · model-period totals, MB · diff = (PPP − PSC) ÷ PSC`)
+    : t(`กรณี ${caseTxt(aMode)} · สรุปจากแผ่นงานคำนวณของแต่ละรายการในแบบจำลอง`, `Case ${caseTxt(aMode)} · from each item’s calculation sheet in the model`);
+  const c1 = card(m, cmp ? t('เปรียบเทียบสมมติฐาน PSC กับ PPP', 'PSC vs PPP assumptions') : t('สมมติฐานของแต่ละรายการย่อย', 'Assumptions by sub-item'), sub, 'a-items');
   const tools = mk('div', 'tools'); const q = mk('input'); q.type = 'search'; q.value = aq; q.placeholder = t('ค้นหารายการ รหัส หรือคำในสมมติฐาน', 'Search items, codes or assumptions'); q.setAttribute('aria-label', q.placeholder); tools.append(q); c1.append(tools);
   const tb = mk('div', 'tbox tall'); tb.dataset.source = 'om_items item_notes'; c1.append(tb);
+  // item order: PSC order first, then items only PPP has
+  const keys = [...K.PSC.rows.keys()].concat([...K.PPP.rows.keys()].filter((k) => !K.PSC.rows.has(k)));
+  const note = (k) => notes.status === 'ok' ? notes.data.find((x) => x.project === project && x.stage === level && x.code === k) : null;
   const draw = () => {
     const qq = aq.trim().toLowerCase();
     const tab = mk('table', 'atab'); tb.replaceChildren(tab);
     const hr = tab.createTHead().insertRow();
-    [[t('รหัส', 'Code'), 'tl stick'], [t('รายการ', 'Item'), 'tl'], [t('สมมติฐาน', 'Assumption'), 'tl'], [t('การปรับขึ้น', 'Escalation'), 'tl'], ['VAT', 'tl']].forEach(([l, c]) => hr.append(mk('th', c, l)));
-    const body = tab.createTBody(); let lastG = null;
-    if (notes.status !== 'ok') { const tr = body.insertRow(); const td = tr.insertCell(); td.colSpan = 5; td.className = 'dash-skeleton'; td.textContent = ' '; return; }
-    for (const r of its) {
-      const n = note(r) || {};
-      const a = n.assumption || '—', e = n.escalation || r.escalation || '—', vt = n.vat || r.vat || '—';
-      if (qq && ![r.code, r.item, r.grp, a, e, vt].join(' ').toLowerCase().includes(qq)) continue;
-      if (r.grp !== lastG) { const tr = body.insertRow(); tr.className = 'gh'; const td = tr.insertCell(); td.colSpan = 5; td.textContent = secName(r.sec) + ' · ' + r.grp; lastG = r.grp; }
+    const heads = cmp ? [[t('รหัส', 'Code'), 'tl stick'], [t('รายการ', 'Item'), 'tl'], [t('สมมติฐาน PSC', 'PSC assumption'), 'tl'], [t('สมมติฐาน PPP', 'PPP assumption'), 'tl'], [t('ความแตกต่าง', 'Difference'), 'tl'], ['PSC', ''], ['PPP', ''], [t('ต่าง (%)', 'Diff (%)'), '']]
+      : [[t('รหัส', 'Code'), 'tl stick'], [t('รายการ', 'Item'), 'tl'], [t('สมมติฐาน', 'Assumption'), 'tl'], [t('การปรับขึ้น', 'Escalation'), 'tl'], ['VAT', 'tl']];
+    heads.forEach(([l, c]) => hr.append(mk('th', c, l)));
+    const ncol = heads.length; const body = tab.createTBody(); let lastG = null;
+    if (notes.status !== 'ok') { const tr = body.insertRow(); const td = tr.insertCell(); td.colSpan = ncol; td.className = 'dash-skeleton'; td.textContent = ' '; return; }
+    let sP = 0, sQ = 0;
+    for (const k of keys) {
+      const a = K.PSC.rows.get(k), b = K.PPP.rows.get(k), r = cmp ? (a || b) : K[aMode].rows.get(k); if (!r) continue;
+      const n = note(k) || {};
+      const lc = aMode === 'PPP' ? 'ppp' : 'psc';
+      const A = n['a_' + lc] || (aMode === 'PSC' ? n.assumption : '') || '—', E = n['e_' + lc] || r.escalation || '—', V = n['v_' + lc] || r.vat || '—';
+      const hay = cmp ? [k, r.item, r.grp, n.a_psc, n.a_ppp, n.diff] : [k, r.item, r.grp, A, E, V];
+      if (qq && !hay.join(' ').toLowerCase().includes(qq)) continue;
+      if (r.grp !== lastG) { const tr = body.insertRow(); tr.className = 'gh'; const td = tr.insertCell(); td.colSpan = ncol; td.textContent = secName(r.sec) + ' · ' + r.grp; lastG = r.grp; }
       const tr = body.insertRow(); tr.dataset.key = r.item_id;
-      [r.code || '·', r.item, a, e, vt].forEach((x, i) => { const td = tr.insertCell(); td.textContent = x; td.className = i === 0 ? 'tl stick code' : i === 1 ? 'item' : i === 2 ? 'sumtxt' : i === 3 ? 'esctxt' : 'vattxt'; });
+      const cell = (txt, cls) => { const td = tr.insertCell(); td.textContent = txt; td.className = cls || ''; return td; };
+      cell(r.code || '·', 'tl stick code'); cell(r.item, 'item');
+      if (!cmp) { cell(A, 'sumtxt'); cell(E, 'esctxt'); cell(V, 'vattxt'); continue; }
+      const both = (lc2) => { const td = cell(n['a_' + lc2] || '—', 'sumtxt half'); const ev = [n['e_' + lc2], n['v_' + lc2]].filter(Boolean).join(' · '); if (ev) td.append(mk('span', 'ev', ev)); };
+      both('psc'); both('ppp'); cell(n.diff || '—', 'difftxt');
+      const pv = a ? a.total : null, qv = b ? b.total : null; if (pv) sP += pv; if (qv) sQ += qv;
+      cell(pv == null ? '—' : fmt2(pv)); cell(qv == null ? '—' : fmt2(qv));
+      const d = pv && qv != null ? (qv - pv) / pv : null; const dc = cell(d == null ? '—' : d3.format('+.1%')(d)); if (d != null) dc.className = d < -0.0005 ? 'neg' : d > 0.0005 ? 'pos' : '';
+    }
+    if (cmp) {
+      const tr = body.insertRow(); tr.className = 'gt'; const td = tr.insertCell(); td.colSpan = 5; td.textContent = t('รวมทุกรายการ', 'All items'); td.className = 'tl';
+      [fmt2(sP), fmt2(sQ), sP ? d3.format('+.1%')((sQ - sP) / sP) : '—'].forEach((x) => { const c = tr.insertCell(); c.textContent = x; });
     }
   };
   q.addEventListener('input', () => { aq = q.value; draw(); });
